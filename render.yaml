@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: viralflow
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: VIRALFLOW_ADMIN_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATA_ENCRYPTION_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: viralflow-db
+          property: connectionString
+      - key: TIKTOK_SHOP_APP_KEY
+        sync: false
+      - key: TIKTOK_SHOP_APP_SECRET
+        sync: false
+      - key: TIKTOK_SHOP_SERVICE_ID
+        sync: false
+
+databases:
+  - name: viralflow-db
+    plan: free
+    databaseName: viralflow
+    user: viralflow
