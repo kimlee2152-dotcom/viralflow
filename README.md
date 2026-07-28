@@ -37,6 +37,6 @@ npm.cmd run dev
 - `SESSION_SECRET`
 - `DATA_ENCRYPTION_KEY`
 
-Render Blueprint 会自动创建并连接 PostgreSQL，`DATABASE_URL` 无需手动填写。
+Render Blueprint 会自动创建并连接 PostgreSQL，`DATABASE_URL` 无需手动填写。首次部署只要求填写网站访问密码；OpenAI 和 TikTok 密钥可在服务上线后从 Render 环境变量中添加。
 
 TikTok 和 Creatify 的配置可以后续补充。健康检查地址为 `/api/health`。

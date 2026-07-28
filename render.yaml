@@ -6,8 +6,6 @@ services:
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     envVars:
-      - key: OPENAI_API_KEY
-        sync: false
       - key: VIRALFLOW_ADMIN_PASSWORD
         sync: false
       - key: SESSION_SECRET
@@ -18,12 +16,6 @@ services:
         fromDatabase:
           name: viralflow-db
           property: connectionString
-      - key: TIKTOK_SHOP_APP_KEY
-        sync: false
-      - key: TIKTOK_SHOP_APP_SECRET
-        sync: false
-      - key: TIKTOK_SHOP_SERVICE_ID
-        sync: false
 
 databases:
   - name: viralflow-db
