@@ -67,18 +67,25 @@ function StatusPill({ configured, pendingText = '未配置', readyText = '已配
 function ServiceStrip({ status }) {
   if (!status) return null
   return <div className="service-strip">
-    <div><Sparkles size={18} /><span>AI 分析与脚本</span><StatusPill configured={status.openai?.configured} /></div>
+    <div><Sparkles size={18} /><span>Gemini 分析与脚本</span><StatusPill configured={status.google?.configured} /></div>
     <div><Database size={18} /><span>TikTok 官方数据</span><StatusPill configured={status.tiktok?.configured} pendingText="等待接入" /></div>
-    <div><Film size={18} /><span>AI 模特视频</span><StatusPill configured={status.creatify?.configured} /></div>
+    <div><Film size={18} /><span>Omni Flash 模特视频</span><StatusPill configured={status.google?.configured} /></div>
   </div>
 }
 
 function ProjectRow({ project, onOpen, onDelete }) {
+  const projectStatus = project.status === 'video_completed'
+    ? '视频已完成'
+    : project.status === 'video_failed'
+      ? '生成失败'
+      : project.status?.startsWith('video_')
+        ? '视频生成中'
+        : '已完成'
   const title = project.title || '未命名项目'
   return <article className="project-row" onClick={() => onOpen(project)}>
     <div className={`project-icon ${project.kind}`} >{project.kind === 'analysis' ? <Clapperboard size={19} /> : <FileText size={19} />}</div>
     <div className="project-main"><strong>{title}</strong><span>{project.kind === 'analysis' ? '视频分析' : 'AI 脚本'} · {formatDate(project.updatedAt)}</span></div>
-    <span className="project-status">{project.status?.startsWith('video_') ? '视频生成中' : '已完成'}</span>
+    <span className="project-status">{projectStatus}</span>
     {onDelete ? <button className="icon-button" aria-label="删除项目" onClick={(event) => { event.stopPropagation(); onDelete(project.id) }}><Trash2 size={17} /></button> : <ChevronRight size={18} />}
   </article>
 }
@@ -110,9 +117,9 @@ function CreatePage({ status, onCreated }) {
   const [mode, setMode] = useState('script')
   return <div className="page-stack">
     <div className="page-title"><div><h1>内容制作</h1><p>所有结果都来自真实上传内容或你填写的商品资料，不使用样例数据。</p></div></div>
-    {!status?.openai?.configured ? <ErrorNotice message="OpenAI 尚未配置，视频分析、脚本和 Sora 生成功能暂不可用。" /> : null}
+    {!status?.google?.configured ? <ErrorNotice message="Google Gemini 尚未配置，视频分析、脚本和 Omni Flash 生成功能暂不可用。" /> : null}
     <div className="mode-tabs"><button className={mode === 'script' ? 'active' : ''} onClick={() => setMode('script')}><Sparkles size={18} />商品资料生成脚本</button><button className={mode === 'video' ? 'active' : ''} onClick={() => setMode('video')}><Upload size={18} />上传视频分析</button></div>
-    {mode === 'script' ? <ScriptForm disabled={!status?.openai?.configured} onCreated={onCreated} /> : <VideoForm disabled={!status?.openai?.configured} onCreated={onCreated} />}
+    {mode === 'script' ? <ScriptForm disabled={!status?.google?.configured} onCreated={onCreated} /> : <VideoForm disabled={!status?.google?.configured} onCreated={onCreated} />}
   </div>
 }
 
@@ -169,11 +176,19 @@ function ProjectDetail({ project, status, onBack, onRefresh }) {
   const [task, setTask] = useState(project.videoTask || null)
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [productImage, setProductImage] = useState(null)
+  const [modelImage, setModelImage] = useState(null)
   const prompt = analysis?.video_prompt || ''
   const createVideo = async () => {
     setCreating(true); setError('')
     try {
-      const created = await postJson('/api/videos', { provider: 'sora', prompt, seconds: '8', size: '720x1280', projectId: project.id })
+      const body = new FormData()
+      body.append('prompt', prompt)
+      body.append('seconds', '10')
+      body.append('projectId', project.id)
+      if (productImage) body.append('productImage', productImage)
+      if (modelImage) body.append('modelImage', modelImage)
+      const created = await api('/api/videos', { method: 'POST', body })
       setTask({ provider: created.provider, id: created.id, status: created.status || 'queued', prompt })
       onRefresh()
     } catch (err) { setError(err.message) } finally { setCreating(false) }
@@ -198,7 +213,7 @@ function ProjectDetail({ project, status, onBack, onRefresh }) {
       <section className="result-card"><h2>评论洞察</h2><div className="score"><strong>{analysis.comment_insights?.purchase_intent || 0}</strong><span>购买意向分</span></div><h3>消费者顾虑</h3><ul>{analysis.comment_insights?.objections?.length ? analysis.comment_insights.objections.map((item) => <li key={item}>{item}</li>) : <li>未提供足够评论样本</li>}</ul><h3>新内容角度</h3><ul>{analysis.comment_insights?.new_angles?.map((item) => <li key={item}>{item}</li>)}</ul></section>
     </div>
     <section className="section-block script-section"><div className="section-heading"><div><h2>优化后的英文脚本</h2><p>{script?.hook_zh}</p></div></div><div className="hook-copy"><span>0-3 秒钩子</span><strong>{script?.hook_en}</strong></div><div className="scene-list">{script?.scenes?.map((scene, index) => <div key={`${scene.time}-${index}`}><time>{scene.time}</time><div><strong>{scene.voice_en}</strong><p>{scene.visual}</p></div></div>)}</div><div className="cta-line"><span>CTA</span>{script?.cta_en}</div></section>
-    <section className="section-block prompt-section"><div className="section-heading"><div><h2>AI 视频提示词</h2><p>可直接用于生成 9:16 美区 UGC 视频</p></div><button className="button secondary" onClick={async () => { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>{copied ? <Check size={16} /> : null}{copied ? '已复制' : '复制提示词'}</button></div><pre>{prompt}</pre><div className="video-action"><div>{task ? <><strong>视频任务：{task.status || 'queued'}</strong><span>系统每 10 秒自动刷新状态</span></> : <><strong>使用 Sora 生成视频</strong><span>会使用网站配置的 OpenAI 额度</span></>}</div>{String(task?.status).toLowerCase() === 'completed' ? <a className="button primary" href={`/api/videos/sora/${task.id}/content`}><Play size={17} />下载视频</a> : <LoadingButton className="button primary" loading={creating} disabled={!status?.openai?.configured || Boolean(task?.id)} onClick={createVideo}><Film size={17} />{task?.id ? '正在生成' : '生成 8 秒视频'}</LoadingButton>}</div></section>
+    <section className="section-block prompt-section"><div className="section-heading"><div><h2>AI 视频提示词</h2><p>专为 9:16 美区 TikTok UGC 与 Gemini Omni Flash 优化</p></div><button className="button secondary" onClick={async () => { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>{copied ? <Check size={16} /> : null}{copied ? '已复制' : '复制提示词'}</button></div><pre>{prompt}</pre>{!task ? <div className="reference-upload-grid"><label className={productImage ? 'mini-upload selected' : 'mini-upload'}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setProductImage(event.target.files?.[0] || null)} /><Upload size={19} /><span><strong>商品参考图</strong><small>{productImage?.name || '建议上传，保持商品外观准确'}</small></span></label><label className={modelImage ? 'mini-upload selected' : 'mini-upload'}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setModelImage(event.target.files?.[0] || null)} /><Upload size={19} /><span><strong>成人模特参考图</strong><small>{modelImage?.name || '可选，用于固定 AI 出镜人物'}</small></span></label></div> : null}<div className="video-action"><div>{task ? <><strong>视频任务：{task.status || 'queued'}</strong><span>系统每 10 秒自动刷新状态</span></> : <><strong>使用 Gemini Omni Flash 生成视频</strong><span>竖屏、原生英语口播与声音；参考图可保持商品和模特一致</span></>}</div>{String(task?.status).toLowerCase() === 'completed' ? <a className="button primary" href={`/api/videos/gemini/${task.id}/content`}><Play size={17} />下载视频</a> : <LoadingButton className="button primary" loading={creating} disabled={!status?.google?.configured || Boolean(task?.id)} onClick={createVideo}><Film size={17} />{task?.id ? '正在生成' : '生成 10 秒视频'}</LoadingButton>}</div></section>
     {analysis.risks?.length ? <section className="risk-box"><CircleAlert size={20} /><div><strong>发布前检查</strong><ul>{analysis.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul></div></section> : null}
   </div>
 }
@@ -232,14 +247,13 @@ function TikTokPage({ status }) {
 function SettingsPage({ status, refresh }) {
   const [checking, setChecking] = useState(false)
   const [message, setMessage] = useState('')
-  const check = async () => { setChecking(true); setMessage(''); try { const result = await postJson('/api/openai/check', {}); setMessage(`连接成功：${result.model}`); refresh() } catch (err) { setMessage(err.message) } finally { setChecking(false) } }
+  const check = async () => { setChecking(true); setMessage(''); try { const result = await postJson('/api/google/check', {}); setMessage(`连接成功：${result.model}`); refresh() } catch (err) { setMessage(err.message) } finally { setChecking(false) } }
   const services = [
-    ['OpenAI', status?.openai?.configured, '视频分析、原创脚本和 Sora 视频'],
+    ['Google Gemini', status?.google?.configured, '完整视频理解、原创脚本与 Omni Flash 竖屏视频'],
     ['TikTok Shop', status?.tiktok?.configured, '官方 Bestsellers 榜单'],
-    ['Creatify', status?.creatify?.configured, 'AI 模特商品视频'],
     ['加密存储', status?.storage?.encrypted, '项目、令牌和操作记录'],
   ]
-  return <div className="page-stack"><div className="page-title"><div><h1>服务状态</h1><p>这里显示的是服务器上的真实配置状态，不会向浏览器泄露密钥。</p></div></div><section className="section-block service-list">{services.map(([name, ready, description]) => <div key={name}><div><strong>{name}</strong><span>{description}</span></div><StatusPill configured={ready} /></div>)}</section>{message ? <div className="notice notice-info">{message}</div> : null}<button className="button secondary align-start" onClick={check} disabled={!status?.openai?.configured || checking}>{checking ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}测试 OpenAI 连接</button></div>
+  return <div className="page-stack"><div className="page-title"><div><h1>服务状态</h1><p>这里显示的是服务器上的真实配置状态，不会向浏览器泄露密钥。</p></div></div><section className="section-block service-list">{services.map(([name, ready, description]) => <div key={name}><div><strong>{name}</strong><span>{description}</span></div><StatusPill configured={ready} /></div>)}</section>{message ? <div className="notice notice-info">{message}</div> : null}<button className="button secondary align-start" onClick={check} disabled={!status?.google?.configured || checking}>{checking ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}测试 Google Gemini 连接</button></div>
 }
 
 export default function App() {
@@ -289,5 +303,5 @@ export default function App() {
 
   if (auth.loading) return <div className="boot-screen"><LoaderCircle className="spin" size={28} />正在启动 ViralFlow</div>
   if (auth.required && !auth.authenticated) return <LoginScreen onLogin={checkAuth} />
-  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={sidebarOpen} setOpen={setSidebarOpen} onLogout={logout} /><div className="main-shell"><header className="topbar"><button className="menu-button" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div><strong>{navigation.find((item) => item.id === page)?.label || '项目详情'}</strong><span>真实内容 · 真实数据 · 原创生成</span></div><StatusPill configured={status?.openai?.configured} pendingText="AI 未配置" /></header><main className="content"><ErrorNotice message={error} onClose={() => setError('')} />{content}</main></div></div>
+  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={sidebarOpen} setOpen={setSidebarOpen} onLogout={logout} /><div className="main-shell"><header className="topbar"><button className="menu-button" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div><strong>{navigation.find((item) => item.id === page)?.label || '项目详情'}</strong><span>真实内容 · 真实数据 · 原创生成</span></div><StatusPill configured={status?.google?.configured} pendingText="AI 未配置" /></header><main className="content"><ErrorNotice message={error} onClose={() => setError('')} />{content}</main></div></div>
 }

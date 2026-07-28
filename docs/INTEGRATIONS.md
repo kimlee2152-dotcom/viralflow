@@ -21,32 +21,23 @@
 
 美国数据安全审核和权限审核通过后，在网站的“TikTok 数据”页面完成一次授权即可。首次同步只建立数据快照；系统积累 3 天或 7 天快照后，才会计算真实增长率。GMV 是平台返回的脱敏区间，不是精确销售额。
 
-## OpenAI
+## Google Gemini
 
-服务器使用 OpenAI 完成：
+服务器使用 Google Gemini 完成：
 
-- 视频语音转文字
-- 关键画面、台词与评论分析
+- 完整视频的画面、口播、声音、字幕与节奏理解
+- 商品资料、评论与消费顾虑分析
 - 原创英文带货脚本和视频提示词
-- Sora 视频任务、状态查询和成片下载
+- Gemini Omni Flash 9:16 竖屏视频、原生英语口播和声音
+- 商品参考图和成人模特参考图驱动的视频生成
 
 配置项：
 
-- `OPENAI_API_KEY`
-- `OPENAI_ANALYSIS_MODEL`
-- `OPENAI_TRANSCRIBE_MODEL`
-- `OPENAI_VIDEO_MODEL`
+- `GEMINI_API_KEY`
+- `GEMINI_ANALYSIS_MODEL`（默认 `gemini-3.6-flash`）
+- `GEMINI_VIDEO_MODEL`（默认 `gemini-omni-flash-preview`）
 
-上传文件上限为 200 MB。分析完成后，临时视频、音轨和抽帧会自动删除；只保存分析结果。
-
-## Creatify（可选）
-
-需要 AI 模特商品视频时配置：
-
-- `CREATIFY_API_ID`
-- `CREATIFY_API_KEY`
-
-同时需要一个可公开访问的商品链接。未配置时，网站仍可使用 OpenAI 分析、脚本和 Sora 视频功能。
+上传视频上限为 200 MB，商品图和模特图每张上限为 12 MB。分析完成后，本地临时文件和上传到 Gemini 的临时文件会自动删除，只保存分析结果。视频生成使用后台任务，页面会自动刷新进度并在完成后提供下载。
 
 ## 生产安全
 

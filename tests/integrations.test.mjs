@@ -1,9 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import OpenAI from 'openai'
-import ffmpegPath from 'ffmpeg-static'
-import ffprobeStatic from 'ffprobe-static'
+import { GoogleGenAI } from '@google/genai'
 import { generateTikTokSign } from '../server/tiktok.mjs'
 import { config, serviceStatus } from '../server/config.mjs'
 import { completeAuthorization, getTikTokAuthorizationStatus } from '../server/tiktok-auth.mjs'
@@ -43,16 +41,29 @@ test('服务端没有店铺私有视频接口或虚构数据', () => {
   assert.equal(appSource.includes('demo'), false)
 })
 
-test('视频处理程序已经安装', () => {
-  assert.equal(fs.existsSync(ffmpegPath), true)
-  assert.equal(fs.existsSync(ffprobeStatic.path), true)
+test('Google Gemini SDK 包含视频理解和异步视频任务方法', () => {
+  const client = new GoogleGenAI({ apiKey: 'test-only' })
+  assert.equal(typeof client.files.upload, 'function')
+  assert.equal(typeof client.files.get, 'function')
+  assert.equal(typeof client.interactions.create, 'function')
+  assert.equal(typeof client.interactions.get, 'function')
 })
 
-test('当前 OpenAI SDK 包含 Sora 任务方法', () => {
-  const client = new OpenAI({ apiKey: 'test-only' })
-  assert.equal(typeof client.videos.create, 'function')
-  assert.equal(typeof client.videos.retrieve, 'function')
-  assert.equal(typeof client.videos.downloadContent, 'function')
+test('前后端已经移除 OpenAI、Sora 和 Creatify 依赖', () => {
+  const files = ['../server.mjs', '../server/config.mjs', '../server/analysis.mjs', '../server/videos.mjs', '../src/App.jsx']
+  const source = files.map((file) => fs.readFileSync(new URL(file, import.meta.url), 'utf8')).join('\n')
+  assert.equal(/OpenAI|Sora|Creatify/i.test(source), false)
+  assert.equal(source.includes('gemini-omni-flash-preview'), true)
+})
+
+test('Gemini 视频任务支持商品图、成人模特图和安全下载', () => {
+  const serverSource = fs.readFileSync(new URL('../server.mjs', import.meta.url), 'utf8')
+  const appSource = fs.readFileSync(new URL('../src/App.jsx', import.meta.url), 'utf8')
+  assert.equal(serverSource.includes("{ name: 'productImage', maxCount: 1 }"), true)
+  assert.equal(serverSource.includes("{ name: 'modelImage', maxCount: 1 }"), true)
+  assert.equal(appSource.includes("body.append('productImage', productImage)"), true)
+  assert.equal(appSource.includes("body.append('modelImage', modelImage)"), true)
+  assert.equal(appSource.includes('/api/videos/gemini/'), true)
 })
 
 test('敏感 JSON 可以加密保存并正确读取', async () => {

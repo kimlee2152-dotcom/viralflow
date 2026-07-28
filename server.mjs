@@ -4,10 +4,10 @@ import express from 'express'
 import multer from 'multer'
 import { createServer as createViteServer } from 'vite'
 import { config, serviceStatus } from './server/config.mjs'
-import { analyzeVideo, checkOpenAIService, generateScript } from './server/analysis.mjs'
+import { analyzeVideo, checkGeminiService, generateScript } from './server/analysis.mjs'
 import { getBestsellingVideos } from './server/tiktok.mjs'
 import { completeAuthorization, createAuthorization, disconnectTikTok, getTikTokAuthorizationStatus, refreshAuthorization } from './server/tiktok-auth.mjs'
-import { createVideoTask, downloadSoraVideo, getVideoTask } from './server/videos.mjs'
+import { createVideoTask, downloadGeminiVideo, getVideoTask } from './server/videos.mjs'
 import { deleteSnapshots, recordAndCompare } from './server/snapshots.mjs'
 import { createProject, deleteProject, getProject, listProjects, updateProject } from './server/projects.mjs'
 import { auditApiRequests, authenticationStatus, login, logout, requireAuthentication, securityHeaders, validateProductionSecurity } from './server/security.mjs'
@@ -29,6 +29,15 @@ const upload = multer({
   },
 })
 
+const imageUpload = multer({
+  dest: uploadDir,
+  limits: { fileSize: 12 * 1024 * 1024, files: 2 },
+  fileFilter: (_req, file, callback) => {
+    const supported = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)
+    callback(supported ? null : new Error('参考图只支持 JPG、PNG 或 WebP。'), supported)
+  },
+})
+
 const asyncRoute = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next)
 
 app.disable('x-powered-by')
@@ -44,7 +53,7 @@ app.post('/api/auth/logout', logout)
 app.use('/api', requireAuthentication)
 
 app.get('/api/status', (_req, res) => res.json(serviceStatus()))
-app.post('/api/openai/check', asyncRoute(async (_req, res) => res.json(await checkOpenAIService())))
+app.post('/api/google/check', asyncRoute(async (_req, res) => res.json(await checkGeminiService())))
 
 app.get('/api/projects', asyncRoute(async (_req, res) => res.json({ projects: await listProjects() })))
 app.get('/api/projects/:id', asyncRoute(async (req, res) => {
@@ -82,7 +91,7 @@ app.post('/api/analyze-video', upload.single('video'), asyncRoute(async (req, re
     error.status = 400
     throw error
   }
-  const result = await analyzeVideo({ filePath: req.file.path, comments: req.body.comments, product: req.body.product })
+  const result = await analyzeVideo({ filePath: req.file.path, mimeType: req.file.mimetype, comments: req.body.comments, product: req.body.product })
   const project = await createProject({
     kind: 'analysis',
     title: result.analysis?.optimized_script?.title || req.body.product || req.file.originalname,
@@ -93,12 +102,13 @@ app.post('/api/analyze-video', upload.single('video'), asyncRoute(async (req, re
   res.status(201).json({ project })
 }))
 
-app.post('/api/videos', asyncRoute(async (req, res) => {
-  const task = await createVideoTask(req.body)
+app.post('/api/videos', imageUpload.fields([{ name: 'productImage', maxCount: 1 }, { name: 'modelImage', maxCount: 1 }]), asyncRoute(async (req, res) => {
+  const referenceImages = Object.values(req.files || {}).flat()
+  const task = await createVideoTask({ ...req.body, referenceImages })
   if (req.body.projectId) {
     await updateProject(req.body.projectId, {
       status: 'video_processing',
-      videoTask: { provider: task.provider, id: task.id || task.uuid, status: task.status || 'queued', prompt: req.body.prompt },
+      videoTask: { provider: task.provider, id: task.id, status: task.status || 'queued', prompt: req.body.prompt },
     })
   }
   res.status(202).json(task)
@@ -117,11 +127,11 @@ app.get('/api/videos/:provider/:id', asyncRoute(async (req, res) => {
   res.json(task)
 }))
 
-app.get('/api/videos/sora/:id/content', asyncRoute(async (req, res) => {
-  const content = await downloadSoraVideo(req.params.id)
-  res.setHeader('content-type', 'video/mp4')
+app.get('/api/videos/gemini/:id/content', asyncRoute(async (req, res) => {
+  const content = await downloadGeminiVideo(req.params.id)
+  res.setHeader('content-type', content.mimeType)
   res.setHeader('content-disposition', `attachment; filename="${req.params.id}.mp4"`)
-  res.send(Buffer.from(await content.arrayBuffer()))
+  res.send(content.data)
 }))
 
 app.get('/api/tiktok/auth/status', asyncRoute(async (_req, res) => res.json(await getTikTokAuthorizationStatus())))

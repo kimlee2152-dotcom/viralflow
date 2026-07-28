@@ -18,11 +18,10 @@ export const config = {
     dataEncryptionKey: process.env.DATA_ENCRYPTION_KEY || '',
     authenticationRequired: production || process.env.REQUIRE_AUTH === 'true',
   },
-  openai: {
-    apiKey: process.env.OPENAI_API_KEY || '',
-    analysisModel: process.env.OPENAI_ANALYSIS_MODEL || 'gpt-5.4',
-    transcribeModel: process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-transcribe',
-    videoModel: process.env.OPENAI_VIDEO_MODEL || 'sora-2',
+  google: {
+    apiKey: process.env.GEMINI_API_KEY || '',
+    analysisModel: process.env.GEMINI_ANALYSIS_MODEL || 'gemini-3.6-flash',
+    videoModel: process.env.GEMINI_VIDEO_MODEL || 'gemini-omni-flash-preview',
   },
   tiktok: {
     appKey: process.env.TIKTOK_SHOP_APP_KEY || '',
@@ -35,22 +34,16 @@ export const config = {
     authBaseUrl: 'https://auth.tiktok-shops.com',
     authorizeUrl: 'https://services.us.tiktokshop.com/open/authorize',
   },
-  creatify: {
-    apiId: process.env.CREATIFY_API_ID || '',
-    apiKey: process.env.CREATIFY_API_KEY || '',
-    baseUrl: 'https://api.creatify.ai',
-  },
 }
 
 export function serviceStatus() {
   return {
     mode: production ? 'production' : 'development',
-    openai: {
-      configured: present(config.openai.apiKey),
-      analysisModel: config.openai.analysisModel,
-      transcribeModel: config.openai.transcribeModel,
-      videoModel: config.openai.videoModel,
-      capabilities: ['视频画面分析', '语音转文字', '脚本生成', 'AI 视频生成'],
+    google: {
+      configured: present(config.google.apiKey),
+      analysisModel: config.google.analysisModel,
+      videoModel: config.google.videoModel,
+      capabilities: ['完整视频理解', '口播识别', '脚本生成', '9:16 原生音频视频', '商品与模特参考图'],
     },
     tiktok: {
       configured: [config.tiktok.appKey, config.tiktok.appSecret, config.tiktok.accessToken].every(present),
@@ -58,10 +51,6 @@ export function serviceStatus() {
       oauthReady: [config.tiktok.appKey, config.tiktok.appSecret, config.tiktok.serviceId].every(present),
       source: 'TikTok Shop 官方 Bestsellers 数据',
       capabilities: ['平台畅销视频榜单', '公开互动指标', '脱敏 GMV 区间'],
-    },
-    creatify: {
-      configured: [config.creatify.apiId, config.creatify.apiKey].every(present),
-      capabilities: ['商品视频', 'AI 模特', '口型与配音'],
     },
     storage: {
       provider: present(config.databaseUrl) ? 'PostgreSQL' : '本地文件',
