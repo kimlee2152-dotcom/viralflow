@@ -10,7 +10,7 @@ import { completeAuthorization, createAuthorization, disconnectTikTok, getTikTok
 import { createVideoTask, downloadVideo, getVideoTask } from './server/videos.mjs'
 import { deleteSnapshots, recordAndCompare } from './server/snapshots.mjs'
 import { createProject, deleteProject, getProject, listProjects, updateProject } from './server/projects.mjs'
-import { auditApiRequests, authenticationStatus, login, logout, requireAuthentication, securityHeaders, validateProductionSecurity } from './server/security.mjs'
+import { auditApiRequests, authenticationStatus, login, logout, register, requireAdmin, requireAuthentication, securityHeaders, validateProductionSecurity } from './server/security.mjs'
 
 const production = process.argv.includes('--production')
 if (production) process.env.NODE_ENV = 'production'
@@ -50,19 +50,20 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'ViralFlow',
 app.get('/api/auth/status', authenticationStatus)
 app.post('/api/auth/login', login)
 app.post('/api/auth/logout', logout)
+app.post('/api/auth/register', register)
 app.use('/api', requireAuthentication)
 
 app.get('/api/status', (_req, res) => res.json(serviceStatus()))
-app.post('/api/google/check', asyncRoute(async (_req, res) => res.json(await checkGeminiService())))
+app.post('/api/google/check', requireAdmin, asyncRoute(async (_req, res) => res.json(await checkGeminiService())))
 
-app.get('/api/projects', asyncRoute(async (_req, res) => res.json({ projects: await listProjects() })))
+app.get('/api/projects', asyncRoute(async (req, res) => res.json({ projects: await listProjects(req.user.id) })))
 app.get('/api/projects/:id', asyncRoute(async (req, res) => {
-  const project = await getProject(req.params.id)
+  const project = await getProject(req.params.id, req.user.id)
   if (!project) return res.status(404).json({ error: '项目不存在。', code: 'PROJECT_NOT_FOUND' })
   res.json({ project })
 }))
 app.delete('/api/projects/:id', asyncRoute(async (req, res) => {
-  if (!await deleteProject(req.params.id)) return res.status(404).json({ error: '项目不存在。', code: 'PROJECT_NOT_FOUND' })
+  if (!await deleteProject(req.params.id, req.user.id)) return res.status(404).json({ error: '项目不存在。', code: 'PROJECT_NOT_FOUND' })
   res.json({ deleted: true })
 }))
 
@@ -81,7 +82,7 @@ app.post('/api/scripts', asyncRoute(async (req, res) => {
       style: req.body.style || '美式 UGC 真人口播',
     },
     result,
-  })
+  }, req.user.id)
   res.status(201).json({ project })
 }))
 
@@ -98,7 +99,7 @@ app.post('/api/analyze-video', upload.single('video'), asyncRoute(async (req, re
     status: 'completed',
     input: { product: req.body.product || '', comments: req.body.comments || '', fileName: req.file.originalname },
     result,
-  })
+  }, req.user.id)
   res.status(201).json({ project })
 }))
 
@@ -109,7 +110,7 @@ app.post('/api/videos', imageUpload.fields([{ name: 'productImage', maxCount: 1 
     await updateProject(req.body.projectId, {
       status: 'video_processing',
       videoTask: { provider: task.provider, id: task.id, model: task.model, status: task.status || 'queued', prompt: req.body.prompt },
-    })
+    }, req.user.id)
   }
   res.status(202).json(task)
 }))
@@ -122,7 +123,7 @@ app.get('/api/videos/:provider/:id', asyncRoute(async (req, res) => {
     await updateProject(req.query.projectId, {
       status: complete ? 'video_completed' : failed ? 'video_failed' : 'video_processing',
       videoTask: { provider: task.provider, id: task.id || req.params.id, model: task.model, status: task.status, prompt: req.query.prompt || '', task },
-    })
+    }, req.user.id)
   }
   res.json(task)
 }))
@@ -135,7 +136,7 @@ app.get('/api/videos/:provider/:id/content', asyncRoute(async (req, res) => {
 }))
 
 app.get('/api/tiktok/auth/status', asyncRoute(async (_req, res) => res.json(await getTikTokAuthorizationStatus())))
-app.get('/api/tiktok/oauth/start', (req, res, next) => {
+app.get('/api/tiktok/oauth/start', requireAdmin, (req, res, next) => {
   try { res.redirect(createAuthorization(res)) } catch (error) { next(error) }
 })
 app.get('/api/tiktok/oauth/callback', async (req, res) => {
@@ -148,11 +149,11 @@ app.get('/api/tiktok/oauth/callback', async (req, res) => {
     res.redirect(`/?page=tiktok&tiktok=error&message=${encodeURIComponent(error.message)}`)
   }
 })
-app.post('/api/tiktok/auth/refresh', asyncRoute(async (_req, res) => {
+app.post('/api/tiktok/auth/refresh', requireAdmin, asyncRoute(async (_req, res) => {
   await refreshAuthorization()
   res.json(await getTikTokAuthorizationStatus())
 }))
-app.delete('/api/tiktok/auth', asyncRoute(async (_req, res) => {
+app.delete('/api/tiktok/auth', requireAdmin, asyncRoute(async (_req, res) => {
   const authorization = await disconnectTikTok()
   await deleteSnapshots()
   res.json({ ...authorization, snapshotsDeleted: true })

@@ -3,27 +3,31 @@ import path from 'node:path'
 import { config } from './config.mjs'
 import { deleteSecureJson, readSecureJson, writeSecureJson } from './secure-storage.mjs'
 
-const projectsFile = path.join(config.dataDir, 'projects.json')
+function projectsFile(ownerId = 'admin') {
+  if (ownerId === 'admin') return path.join(config.dataDir, 'projects.json')
+  const safeOwner = String(ownerId).replace(/[^a-zA-Z0-9-]/g, '')
+  return path.join(config.dataDir, 'users', safeOwner, 'projects.json')
+}
 
-async function readProjects() {
-  const projects = await readSecureJson(projectsFile, [])
+async function readProjects(ownerId) {
+  const projects = await readSecureJson(projectsFile(ownerId), [])
   return Array.isArray(projects) ? projects : []
 }
 
-async function writeProjects(projects) {
-  await writeSecureJson(projectsFile, projects.slice(0, 200))
+async function writeProjects(projects, ownerId) {
+  await writeSecureJson(projectsFile(ownerId), projects.slice(0, 200))
 }
 
-export async function listProjects() {
-  const projects = await readProjects()
+export async function listProjects(ownerId = 'admin') {
+  const projects = await readProjects(ownerId)
   return projects.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
 }
 
-export async function getProject(id) {
-  return (await readProjects()).find((project) => project.id === id) || null
+export async function getProject(id, ownerId = 'admin') {
+  return (await readProjects(ownerId)).find((project) => project.id === id) || null
 }
 
-export async function createProject(input) {
+export async function createProject(input, ownerId = 'admin') {
   const now = new Date().toISOString()
   const project = {
     id: crypto.randomUUID(),
@@ -33,29 +37,30 @@ export async function createProject(input) {
     createdAt: now,
     updatedAt: now,
     ...input,
+    ownerId,
   }
-  const projects = await readProjects()
-  await writeProjects([project, ...projects.filter((item) => item.id !== project.id)])
+  const projects = await readProjects(ownerId)
+  await writeProjects([project, ...projects.filter((item) => item.id !== project.id)], ownerId)
   return project
 }
 
-export async function updateProject(id, patch) {
-  const projects = await readProjects()
+export async function updateProject(id, patch, ownerId = 'admin') {
+  const projects = await readProjects(ownerId)
   const index = projects.findIndex((project) => project.id === id)
   if (index < 0) return null
-  projects[index] = { ...projects[index], ...patch, id, updatedAt: new Date().toISOString() }
-  await writeProjects(projects)
+  projects[index] = { ...projects[index], ...patch, id, ownerId, updatedAt: new Date().toISOString() }
+  await writeProjects(projects, ownerId)
   return projects[index]
 }
 
-export async function deleteProject(id) {
-  const projects = await readProjects()
+export async function deleteProject(id, ownerId = 'admin') {
+  const projects = await readProjects(ownerId)
   const next = projects.filter((project) => project.id !== id)
   if (next.length === projects.length) return false
-  await writeProjects(next)
+  await writeProjects(next, ownerId)
   return true
 }
 
-export async function deleteAllProjects() {
-  await deleteSecureJson(projectsFile)
+export async function deleteAllProjects(ownerId = 'admin') {
+  await deleteSecureJson(projectsFile(ownerId))
 }

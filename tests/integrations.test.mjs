@@ -1,12 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import { GoogleGenAI } from '@google/genai'
 import RunwayML from '@runwayml/sdk'
 import { generateTikTokSign } from '../server/tiktok.mjs'
 import { config, serviceStatus } from '../server/config.mjs'
 import { completeAuthorization, getTikTokAuthorizationStatus } from '../server/tiktok-auth.mjs'
 import { readSecureJson, writeSecureJson } from '../server/secure-storage.mjs'
+import { accountInternals } from '../server/accounts.mjs'
+import { createProject, deleteAllProjects, listProjects } from '../server/projects.mjs'
 
 test('TikTok 官方签名示例可以复现', () => {
   const sign = generateTikTokSign('/authorization/202309/shops', {
@@ -101,4 +104,37 @@ test('敏感 JSON 可以加密保存并正确读取', async () => {
     config.security.dataEncryptionKey = previous
     fs.rmSync(file, { force: true })
   }
+})
+
+test('客户密码使用慢速加盐算法保存并可安全验证', async () => {
+  const password = 'A unique customer password 2026!'
+  const stored = await accountInternals.passwordHash(password)
+  assert.equal(stored.includes(password), false)
+  assert.equal(stored.startsWith('scrypt$65536$8$2$'), true)
+  assert.equal(await accountInternals.verifyPassword(password, stored), true)
+  assert.equal(await accountInternals.verifyPassword('wrong-password', stored), false)
+})
+
+test('两个客户的项目数据彼此隔离', async () => {
+  const ownerA = `test-a-${crypto.randomUUID()}`
+  const ownerB = `test-b-${crypto.randomUUID()}`
+  try {
+    await createProject({ title: '客户 A 的项目' }, ownerA)
+    await createProject({ title: '客户 B 的项目' }, ownerB)
+    assert.deepEqual((await listProjects(ownerA)).map((item) => item.title), ['客户 A 的项目'])
+    assert.deepEqual((await listProjects(ownerB)).map((item) => item.title), ['客户 B 的项目'])
+  } finally {
+    await deleteAllProjects(ownerA)
+    await deleteAllProjects(ownerB)
+  }
+})
+
+test('注册登录接口和管理员权限保护已经启用', () => {
+  const serverSource = fs.readFileSync(new URL('../server.mjs', import.meta.url), 'utf8')
+  const securitySource = fs.readFileSync(new URL('../server/security.mjs', import.meta.url), 'utf8')
+  assert.equal(serverSource.includes("'/api/auth/register'"), true)
+  assert.equal(serverSource.includes("'/api/google/check', requireAdmin"), true)
+  assert.equal(serverSource.includes('listProjects(req.user.id)'), true)
+  assert.equal(securitySource.includes('HttpOnly; SameSite=Strict'), true)
+  assert.equal(securitySource.includes('Clear-Site-Data'), true)
 })

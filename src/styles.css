@@ -32,6 +32,10 @@ a { color: inherit; text-decoration: none; }
 .sidebar-foot { margin-top: auto; padding: 16px 10px 0; border-top: 1px solid rgba(255,255,255,.09); }
 .sidebar-foot > span { display: block; margin-bottom: 10px; font-size: 11px; color: #75849a; }
 .sidebar-foot button { padding: 0; display: flex; gap: 8px; align-items: center; border: 0; color: #aeb9cb; background: transparent; font-size: 13px; }
+.sidebar-user { margin-bottom: 13px; }
+.sidebar-user strong, .sidebar-user span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-user strong { color: #e9eef7; font-size: 12px; }
+.sidebar-user span { margin-top: 4px; color: #75849a; font-size: 10px; }
 .sidebar-scrim { display: none; }
 .main-shell { min-height: 100vh; margin-left: 248px; }
 .topbar { height: 72px; padding: 0 34px; display: flex; align-items: center; gap: 14px; position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--border); background: rgba(255,255,255,.94); backdrop-filter: blur(12px); }
@@ -224,17 +228,30 @@ p { color: var(--muted); line-height: 1.7; }
 .service-list strong, .service-list span:not(.status-pill) { display: block; }
 .service-list strong { font-size: 13px; }
 .service-list span:not(.status-pill) { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.account-summary { padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid var(--border); border-radius: 14px; background: white; }
+.account-summary > div { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.account-summary > div > span { width: 42px; height: 42px; display: grid; place-items: center; flex: none; border-radius: 12px; color: white; background: linear-gradient(145deg, #24c8bf, #246bfd); font-weight: 800; }
+.account-summary strong, .account-summary small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-summary strong { font-size: 13px; }
+.account-summary small { margin-top: 4px; color: var(--muted); font-size: 10px; }
 
 .login-page, .boot-screen { min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at 80% 0, #173e70, #0a1930 45%, #071425); }
 .boot-screen { display: flex; gap: 10px; color: white; font-size: 13px; }
-.login-card { width: min(400px, calc(100% - 32px)); padding: 38px; border-radius: 18px; background: white; box-shadow: 0 28px 70px rgba(0,0,0,.28); }
-.login-card .brand-mark { margin-bottom: 18px; }
-.login-card h1 { margin-bottom: 4px; font-size: 29px; }
-.login-card > p { margin-bottom: 28px; font-size: 13px; }
+.login-card { width: min(440px, calc(100% - 32px)); padding: 34px 38px; border-radius: 18px; background: white; box-shadow: 0 28px 70px rgba(0,0,0,.28); }
+.login-brand { display: flex; align-items: center; gap: 14px; }
+.login-brand .brand-mark { width: 46px; height: 46px; }
+.login-card h1 { margin: 0 0 3px; font-size: 26px; }
+.login-brand p { margin: 0; font-size: 11px; }
+.auth-tabs { margin: 24px 0 20px; padding: 4px; display: grid; grid-template-columns: 1fr 1fr; border-radius: 10px; background: #f1f4f8; }
+.auth-tabs button { height: 38px; border: 0; border-radius: 8px; color: #69758a; background: transparent; font-size: 12px; font-weight: 750; }
+.auth-tabs button.active { color: #174eab; background: white; box-shadow: 0 2px 8px rgba(18,53,99,.1); }
 .login-card form { display: grid; gap: 16px; }
 .login-card label { display: grid; gap: 8px; color: #34425a; font-size: 12px; font-weight: 700; }
 .login-card input { height: 46px; padding: 0 13px; border: 1px solid #dce2eb; border-radius: 9px; outline: none; }
 .login-card input:focus { border-color: #5d8ff7; box-shadow: 0 0 0 3px rgba(36,107,253,.1); }
+.password-hint { margin: -5px 0 0; color: #7a8698; font-size: 10px; line-height: 1.6; }
+.admin-login-link { width: 100%; margin-top: 18px; border: 0; color: #6c788b; background: transparent; font-size: 11px; }
+.admin-login-link:hover { color: #246bfd; }
 
 @media (max-width: 980px) {
   .sidebar { transform: translateX(-100%); transition: transform .22s ease; }
@@ -273,6 +290,7 @@ p { color: var(--muted); line-height: 1.7; }
   .connection-card > .button, .video-action .button { width: 100%; }
   .video-table { overflow-x: auto; }
   .video-table-head, .video-table-row { min-width: 700px; }
+  .login-card { padding: 28px 22px; }
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation-duration: .01ms !important; } }

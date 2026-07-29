@@ -23,39 +23,49 @@ function LoadingButton({ loading, children, ...props }) {
   return <button {...props} disabled={loading || props.disabled}>{loading ? <LoaderCircle className="spin" size={17} /> : null}{children}</button>
 }
 
-function LoginScreen({ onLogin }) {
-  const [password, setPassword] = useState('')
+function LoginScreen({ onLogin, registrationEnabled }) {
+  const [mode, setMode] = useState('login')
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const set = (key) => (event) => setForm((value) => ({ ...value, [key]: event.target.value }))
+  const changeMode = (next) => { setMode(next); setError(''); setForm({ name: '', email: '', password: '', confirmPassword: '' }) }
   const submit = async (event) => {
     event.preventDefault()
+    if (mode === 'register' && form.password !== form.confirmPassword) return setError('两次输入的密码不一致。')
     setLoading(true); setError('')
     try {
-      await postJson('/api/auth/login', { password })
+      if (mode === 'register') await postJson('/api/auth/register', { name: form.name, email: form.email, password: form.password })
+      else if (mode === 'admin') await postJson('/api/auth/login', { admin: true, password: form.password })
+      else await postJson('/api/auth/login', { email: form.email, password: form.password })
       onLogin()
     } catch (err) { setError(err.message) } finally { setLoading(false) }
   }
   return <main className="login-page">
     <section className="login-card">
-      <div className="brand-mark"><Zap size={24} fill="currentColor" /></div>
-      <h1>ViralFlow</h1>
-      <p>登录内容制作工作台</p>
+      <div className="login-brand"><div className="brand-mark"><Zap size={24} fill="currentColor" /></div><div><h1>ViralFlow</h1><p>美区 TikTok 内容制作工作台</p></div></div>
+      <div className="auth-tabs"><button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => changeMode('login')}>客户登录</button>{registrationEnabled ? <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => changeMode('register')}>免费注册</button> : null}</div>
       <form onSubmit={submit}>
-        <label>访问密码<input autoFocus type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="请输入管理员提供的密码" /></label>
+        {mode === 'register' ? <label>姓名<input autoFocus autoComplete="name" value={form.name} onChange={set('name')} placeholder="请输入你的姓名或称呼" required /></label> : null}
+        {mode !== 'admin' ? <label>邮箱<input autoFocus={mode === 'login'} type="email" autoComplete="email" value={form.email} onChange={set('email')} placeholder="name@example.com" required /></label> : null}
+        <label>{mode === 'admin' ? '管理员密码' : '密码'}<input autoFocus={mode === 'admin'} type="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} value={form.password} onChange={set('password')} placeholder={mode === 'register' ? '至少 10 个字符' : '请输入密码'} minLength={mode === 'admin' ? undefined : 10} required /></label>
+        {mode === 'register' ? <label>确认密码<input type="password" autoComplete="new-password" value={form.confirmPassword} onChange={set('confirmPassword')} placeholder="请再次输入密码" minLength="10" required /></label> : null}
+        {mode === 'register' ? <p className="password-hint">建议使用密码管理器生成独立密码。注册后即可创建自己的私有项目。</p> : null}
         <ErrorNotice message={error} />
-        <LoadingButton className="button primary full" loading={loading}>登录</LoadingButton>
+        <LoadingButton className="button primary full" loading={loading}>{mode === 'register' ? '创建账户并进入' : mode === 'admin' ? '管理员登录' : '登录'}</LoadingButton>
       </form>
+      <button type="button" className="admin-login-link" onClick={() => changeMode(mode === 'admin' ? 'login' : 'admin')}>{mode === 'admin' ? '返回客户登录' : '我是管理员'}</button>
     </section>
   </main>
 }
 
-function Sidebar({ page, setPage, open, setOpen, onLogout }) {
+function Sidebar({ page, setPage, open, setOpen, onLogout, user }) {
   return <>
     {open ? <button className="sidebar-scrim" aria-label="关闭菜单" onClick={() => setOpen(false)} /> : null}
     <aside className={`sidebar ${open ? 'open' : ''}`}>
       <div className="brand"><div className="brand-mark"><Zap size={20} fill="currentColor" /></div><div><strong>ViralFlow</strong><span>内容增长工作台</span></div></div>
       <nav>{navigation.map(({ id, label, icon: Icon }) => <button className={page === id ? 'active' : ''} key={id} onClick={() => { setPage(id); setOpen(false) }}><Icon size={19} />{label}</button>)}</nav>
-      <div className="sidebar-foot"><span>美区 TikTok Shop</span><button onClick={onLogout}><LogOut size={17} />退出</button></div>
+      <div className="sidebar-foot"><div className="sidebar-user"><strong>{user?.name || 'ViralFlow 用户'}</strong><span>{user?.role === 'admin' ? '管理员' : user?.email}</span></div><button onClick={onLogout}><LogOut size={17} />退出登录</button></div>
     </aside>
   </>
 }
@@ -238,7 +248,7 @@ function ProjectsPage({ projects, openProject, removeProject }) {
   return <div className="page-stack"><div className="page-title"><div><h1>项目记录</h1><p>这里仅显示你真实创建的分析和脚本。</p></div></div><section className="section-block">{projects.length ? <div className="project-list">{projects.map((item) => <ProjectRow key={item.id} project={item} onOpen={openProject} onDelete={removeProject} />)}</div> : <EmptyState icon={FileText} title="暂无项目" text="从内容制作页面开始创建。" />}</section></div>
 }
 
-function TikTokPage({ status }) {
+function TikTokPage({ status, user }) {
   const [auth, setAuth] = useState(null)
   const [videos, setVideos] = useState([])
   const [snapshot, setSnapshot] = useState(null)
@@ -252,7 +262,7 @@ function TikTokPage({ status }) {
     try { const data = await postJson('/api/tiktok/bestsellers', { timeSlot: '7D', days: Number(days) }); setVideos(data.videos || []); setSnapshot(data.snapshot) } catch (err) { setError(err.message) } finally { setLoading(false) }
   }
   return <div className="page-stack"><div className="page-title"><div><h1>TikTok 官方数据</h1><p>只展示 TikTok Shop 对外开放的 Bestsellers 数据，不读取商家私有视频。</p></div></div><ErrorNotice message={error} onClose={() => setError('')} />
-    <section className="connection-card"><div className="connection-icon"><Database size={24} /></div><div><h2>美国市场 Bestsellers</h2><p>{auth?.authorized ? '授权有效，可以同步官方榜单。' : status?.tiktok?.oauthReady ? '应用已配置，等待完成平台授权或审核。' : '尚未配置完整的 TikTok 应用凭证。'}</p></div><StatusPill configured={auth?.authorized} readyText="已授权" pendingText={status?.tiktok?.oauthReady ? '等待授权' : '未配置'} />{auth?.authorized ? <button className="button secondary" onClick={sync}><RefreshCw size={16} />同步数据</button> : status?.tiktok?.oauthReady ? <a className="button primary" href="/api/tiktok/oauth/start">连接 TikTok</a> : null}</section>
+    <section className="connection-card"><div className="connection-icon"><Database size={24} /></div><div><h2>美国市场 Bestsellers</h2><p>{auth?.authorized ? '授权有效，可以同步官方榜单。' : status?.tiktok?.oauthReady ? '应用已配置，等待完成平台授权或审核。' : '尚未配置完整的 TikTok 应用凭证。'}</p></div><StatusPill configured={auth?.authorized} readyText="已授权" pendingText={status?.tiktok?.oauthReady ? '等待授权' : '未配置'} />{auth?.authorized ? <button className="button secondary" onClick={sync}><RefreshCw size={16} />同步数据</button> : status?.tiktok?.oauthReady && user?.role === 'admin' ? <a className="button primary" href="/api/tiktok/oauth/start">连接 TikTok</a> : null}</section>
     {!auth?.authorized ? <section className="review-note"><Cloud size={21} /><div><strong>真实数据仍受 TikTok 官方审核控制</strong><p>你的 Bestsellers 权限和美国数据安全审核通过后，才会产生真实榜单。网站不会用演示数据填充空白。</p></div></section> : null}
     {auth?.authorized ? <div className="sync-toolbar"><label>增长窗口<select value={days} onChange={(event) => setDays(event.target.value)}><option value="3">最近 3 天</option><option value="7">最近 7 天</option></select></label><LoadingButton className="button primary" loading={loading} onClick={sync}>同步官方榜单</LoadingButton></div> : null}
     {snapshot ? <div className="notice notice-info">{snapshot.message}</div> : null}
@@ -260,7 +270,7 @@ function TikTokPage({ status }) {
   </div>
 }
 
-function SettingsPage({ status, refresh }) {
+function SettingsPage({ status, refresh, user }) {
   const [checking, setChecking] = useState(false)
   const [message, setMessage] = useState('')
   const check = async () => { setChecking(true); setMessage(''); try { const result = await postJson('/api/google/check', {}); setMessage(`连接成功：${result.model}`); refresh() } catch (err) { setMessage(err.message) } finally { setChecking(false) } }
@@ -270,7 +280,7 @@ function SettingsPage({ status, refresh }) {
     ['TikTok Shop', status?.tiktok?.configured, '官方 Bestsellers 榜单'],
     ['加密存储', status?.storage?.encrypted, '项目、令牌和操作记录'],
   ]
-  return <div className="page-stack"><div className="page-title"><div><h1>服务状态</h1><p>这里显示的是服务器上的真实配置状态，不会向浏览器泄露密钥。</p></div></div><section className="section-block service-list">{services.map(([name, ready, description]) => <div key={name}><div><strong>{name}</strong><span>{description}</span></div><StatusPill configured={ready} /></div>)}</section>{message ? <div className="notice notice-info">{message}</div> : null}<button className="button secondary align-start" onClick={check} disabled={!status?.google?.configured || checking}>{checking ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}测试 Google Gemini 连接</button></div>
+  return <div className="page-stack"><div className="page-title"><div><h1>服务状态</h1><p>这里显示的是服务器上的真实配置状态，不会向浏览器泄露密钥。</p></div></div><section className="account-summary"><div><span>{user?.name?.slice(0, 1)?.toUpperCase() || 'V'}</span><div><strong>{user?.name}</strong><small>{user?.email} · {user?.role === 'admin' ? '管理员账户' : '客户账户'}</small></div></div><StatusPill configured readyText="账户正常" /></section><section className="section-block service-list">{services.map(([name, ready, description]) => <div key={name}><div><strong>{name}</strong><span>{description}</span></div><StatusPill configured={ready} /></div>)}</section>{message ? <div className="notice notice-info">{message}</div> : null}{user?.role === 'admin' ? <button className="button secondary align-start" onClick={check} disabled={!status?.google?.configured || checking}>{checking ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}测试 Google Gemini 连接</button> : null}</div>
 }
 
 export default function App() {
@@ -311,14 +321,14 @@ export default function App() {
 
   const content = useMemo(() => {
     if (page === 'create') return <CreatePage status={status} onCreated={onCreated} />
-    if (page === 'tiktok') return <TikTokPage status={status} />
+    if (page === 'tiktok') return <TikTokPage status={status} user={auth.user} />
     if (page === 'projects') return <ProjectsPage projects={projects} openProject={openProject} removeProject={removeProject} />
-    if (page === 'settings') return <SettingsPage status={status} refresh={loadData} />
+    if (page === 'settings') return <SettingsPage status={status} refresh={loadData} user={auth.user} />
     if (page === 'detail' && selected) return <ProjectDetail project={selected} status={status} onBack={() => setPage('projects')} onRefresh={loadData} />
     return <HomePage projects={projects} status={status} setPage={setPage} openProject={openProject} />
-  }, [page, projects, selected, status, loadData])
+  }, [page, projects, selected, status, loadData, auth.user])
 
   if (auth.loading) return <div className="boot-screen"><LoaderCircle className="spin" size={28} />正在启动 ViralFlow</div>
-  if (auth.required && !auth.authenticated) return <LoginScreen onLogin={checkAuth} />
-  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={sidebarOpen} setOpen={setSidebarOpen} onLogout={logout} /><div className="main-shell"><header className="topbar"><button className="menu-button" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div><strong>{navigation.find((item) => item.id === page)?.label || '项目详情'}</strong><span>真实内容 · 真实数据 · 原创生成</span></div><StatusPill configured={status?.google?.configured} pendingText="AI 未配置" /></header><main className="content"><ErrorNotice message={error} onClose={() => setError('')} />{content}</main></div></div>
+  if (auth.required && !auth.authenticated) return <LoginScreen onLogin={checkAuth} registrationEnabled={auth.registrationEnabled} />
+  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={sidebarOpen} setOpen={setSidebarOpen} onLogout={logout} user={auth.user} /><div className="main-shell"><header className="topbar"><button className="menu-button" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div><strong>{navigation.find((item) => item.id === page)?.label || '项目详情'}</strong><span>真实内容 · 真实数据 · 原创生成</span></div><StatusPill configured={status?.google?.configured} pendingText="AI 未配置" /></header><main className="content"><ErrorNotice message={error} onClose={() => setError('')} />{content}</main></div></div>
 }
