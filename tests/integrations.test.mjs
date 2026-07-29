@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { GoogleGenAI } from '@google/genai'
+import RunwayML from '@runwayml/sdk'
 import { generateTikTokSign } from '../server/tiktok.mjs'
 import { config, serviceStatus } from '../server/config.mjs'
 import { completeAuthorization, getTikTokAuthorizationStatus } from '../server/tiktok-auth.mjs'
@@ -63,7 +64,28 @@ test('Gemini 视频任务支持商品图、成人模特图和安全下载', () =
   assert.equal(serverSource.includes("{ name: 'modelImage', maxCount: 1 }"), true)
   assert.equal(appSource.includes("body.append('productImage', productImage)"), true)
   assert.equal(appSource.includes("body.append('modelImage', modelImage)"), true)
-  assert.equal(appSource.includes('/api/videos/gemini/'), true)
+  assert.equal(appSource.includes('/api/videos/${task.provider}/${task.id}/content'), true)
+})
+
+test('国内外视频模型目录和 Runway 官方方法均已接入', () => {
+  const models = serviceStatus().videoModels
+  assert.deepEqual(models.map((item) => item.id), ['gemini-omni', 'seedance-2', 'runway-gen45', 'runway-ugc'])
+  assert.equal(models.find((item) => item.id === 'seedance-2')?.region, '国内')
+  assert.equal(models.find((item) => item.id === 'runway-gen45')?.region, '海外')
+  const client = new RunwayML({ apiKey: 'test-only' })
+  assert.equal(typeof client.imageToVideo.create, 'function')
+  assert.equal(typeof client.tasks.retrieve, 'function')
+  assert.equal(typeof client.recipes.productUgc, 'function')
+})
+
+test('视频生成接口保存模型并使用统一状态与下载地址', () => {
+  const serverSource = fs.readFileSync(new URL('../server.mjs', import.meta.url), 'utf8')
+  const videoSource = fs.readFileSync(new URL('../server/videos.mjs', import.meta.url), 'utf8')
+  assert.equal(serverSource.includes('model: task.model'), true)
+  assert.equal(serverSource.includes("'/api/videos/:provider/:id/content'"), true)
+  assert.equal(videoSource.includes("model: 'seedance2'"), false)
+  assert.equal(videoSource.includes("client.recipes.productUgc"), true)
+  assert.equal(videoSource.includes("ratio: '720:1280'"), true)
 })
 
 test('敏感 JSON 可以加密保存并正确读取', async () => {

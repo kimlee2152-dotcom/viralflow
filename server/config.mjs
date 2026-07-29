@@ -23,6 +23,13 @@ export const config = {
     analysisModel: process.env.GEMINI_ANALYSIS_MODEL || 'gemini-3.6-flash',
     videoModel: process.env.GEMINI_VIDEO_MODEL || 'gemini-omni-flash-preview',
   },
+  runway: {
+    apiKey: process.env.RUNWAYML_API_SECRET || '',
+    baseUrl: process.env.RUNWAY_API_BASE_URL || 'https://api.dev.runwayml.com',
+    apiVersion: process.env.RUNWAY_API_VERSION || '2024-11-06',
+    seedanceModel: process.env.SEEDANCE_VIDEO_MODEL || 'seedance2',
+    runwayModel: process.env.RUNWAY_VIDEO_MODEL || 'gen4.5',
+  },
   tiktok: {
     appKey: process.env.TIKTOK_SHOP_APP_KEY || '',
     appSecret: process.env.TIKTOK_SHOP_APP_SECRET || '',
@@ -37,14 +44,43 @@ export const config = {
 }
 
 export function serviceStatus() {
+  const googleConfigured = present(config.google.apiKey)
+  const runwayConfigured = present(config.runway.apiKey)
   return {
     mode: production ? 'production' : 'development',
     google: {
-      configured: present(config.google.apiKey),
+      configured: googleConfigured,
       analysisModel: config.google.analysisModel,
       videoModel: config.google.videoModel,
       capabilities: ['完整视频理解', '口播识别', '脚本生成', '9:16 原生音频视频', '商品与模特参考图'],
     },
+    runway: {
+      configured: runwayConfigured,
+      models: [config.runway.seedanceModel, config.runway.runwayModel],
+      capabilities: ['Seedance 2', 'Runway Gen-4.5', 'Product UGC', '9:16 商品图生视频'],
+    },
+    videoModels: [
+      {
+        id: 'gemini-omni', name: 'Gemini Omni Flash', region: '海外', provider: 'gemini',
+        configured: googleConfigured, requiresImage: false, supportsProductAndModel: true,
+        strengths: '原生英文口播与声音，商品和模特双参考图',
+      },
+      {
+        id: 'seedance-2', name: 'Seedance 2', region: '国内', provider: 'runway',
+        configured: runwayConfigured, requiresImage: true, supportsProductAndModel: true,
+        strengths: '多参考图、原生声音与电商短视频节奏',
+      },
+      {
+        id: 'runway-gen45', name: 'Runway Gen-4.5', region: '海外', provider: 'runway',
+        configured: runwayConfigured, requiresImage: true, supportsProductAndModel: false,
+        strengths: '写实质感、镜头运动与广告级画面',
+      },
+      {
+        id: 'runway-ugc', name: 'Runway Product UGC', region: '海外', provider: 'runway',
+        configured: runwayConfigured, requiresImage: true, requiresBothImages: true, supportsProductAndModel: true,
+        strengths: '商品图与成人模特图直出原生口播 UGC 成片',
+      },
+    ],
     tiktok: {
       configured: [config.tiktok.appKey, config.tiktok.appSecret, config.tiktok.accessToken].every(present),
       appConfigured: [config.tiktok.appKey, config.tiktok.appSecret].every(present),

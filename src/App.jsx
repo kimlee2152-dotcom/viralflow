@@ -66,10 +66,11 @@ function StatusPill({ configured, pendingText = '未配置', readyText = '已配
 
 function ServiceStrip({ status }) {
   if (!status) return null
+  const videoReady = status.videoModels?.some((model) => model.configured)
   return <div className="service-strip">
     <div><Sparkles size={18} /><span>Gemini 分析与脚本</span><StatusPill configured={status.google?.configured} /></div>
     <div><Database size={18} /><span>TikTok 官方数据</span><StatusPill configured={status.tiktok?.configured} pendingText="等待接入" /></div>
-    <div><Film size={18} /><span>Omni Flash 模特视频</span><StatusPill configured={status.google?.configured} /></div>
+    <div><Film size={18} /><span>4 个视频生成引擎</span><StatusPill configured={videoReady} /></div>
   </div>
 }
 
@@ -178,6 +179,10 @@ function ProjectDetail({ project, status, onBack, onRefresh }) {
   const [copied, setCopied] = useState(false)
   const [productImage, setProductImage] = useState(null)
   const [modelImage, setModelImage] = useState(null)
+  const videoModels = status?.videoModels || []
+  const defaultModel = project.videoTask?.model || videoModels.find((item) => item.configured)?.id || videoModels[0]?.id || 'gemini-omni'
+  const [selectedModelId, setSelectedModelId] = useState(defaultModel)
+  const selectedModel = videoModels.find((item) => item.id === selectedModelId) || videoModels[0]
   const prompt = analysis?.video_prompt || ''
   const createVideo = async () => {
     setCreating(true); setError('')
@@ -186,10 +191,11 @@ function ProjectDetail({ project, status, onBack, onRefresh }) {
       body.append('prompt', prompt)
       body.append('seconds', '10')
       body.append('projectId', project.id)
+      body.append('model', selectedModelId)
       if (productImage) body.append('productImage', productImage)
       if (modelImage) body.append('modelImage', modelImage)
       const created = await api('/api/videos', { method: 'POST', body })
-      setTask({ provider: created.provider, id: created.id, status: created.status || 'queued', prompt })
+      setTask({ provider: created.provider, id: created.id, model: created.model || selectedModelId, status: created.status || 'queued', prompt })
       onRefresh()
     } catch (err) { setError(err.message) } finally { setCreating(false) }
   }
@@ -197,12 +203,12 @@ function ProjectDetail({ project, status, onBack, onRefresh }) {
     if (!task?.id || ['completed', 'failed', 'cancelled'].includes(String(task.status).toLowerCase())) return undefined
     const timer = setInterval(async () => {
       try {
-        const next = await api(`/api/videos/${task.provider}/${task.id}?projectId=${project.id}&prompt=${encodeURIComponent(prompt)}`)
+        const next = await api(`/api/videos/${task.provider}/${task.id}?projectId=${project.id}&model=${encodeURIComponent(task.model || selectedModelId)}&prompt=${encodeURIComponent(prompt)}`)
         setTask({ ...task, ...next }); onRefresh()
       } catch (err) { setError(err.message); clearInterval(timer) }
     }, 10000)
     return () => clearInterval(timer)
-  }, [task?.id, task?.provider, task?.status, project.id, prompt, onRefresh])
+  }, [task?.id, task?.provider, task?.model, task?.status, project.id, prompt, selectedModelId, onRefresh])
   if (!analysis) return <EmptyState icon={CircleAlert} title="项目结果不完整" text="请重新创建这个项目。" action={<button className="button secondary" onClick={onBack}>返回</button>} />
   return <div className="page-stack">
     <button className="back-button" onClick={onBack}>‹ 返回项目列表</button>
@@ -213,7 +219,17 @@ function ProjectDetail({ project, status, onBack, onRefresh }) {
       <section className="result-card"><h2>评论洞察</h2><div className="score"><strong>{analysis.comment_insights?.purchase_intent || 0}</strong><span>购买意向分</span></div><h3>消费者顾虑</h3><ul>{analysis.comment_insights?.objections?.length ? analysis.comment_insights.objections.map((item) => <li key={item}>{item}</li>) : <li>未提供足够评论样本</li>}</ul><h3>新内容角度</h3><ul>{analysis.comment_insights?.new_angles?.map((item) => <li key={item}>{item}</li>)}</ul></section>
     </div>
     <section className="section-block script-section"><div className="section-heading"><div><h2>优化后的英文脚本</h2><p>{script?.hook_zh}</p></div></div><div className="hook-copy"><span>0-3 秒钩子</span><strong>{script?.hook_en}</strong></div><div className="scene-list">{script?.scenes?.map((scene, index) => <div key={`${scene.time}-${index}`}><time>{scene.time}</time><div><strong>{scene.voice_en}</strong><p>{scene.visual}</p></div></div>)}</div><div className="cta-line"><span>CTA</span>{script?.cta_en}</div></section>
-    <section className="section-block prompt-section"><div className="section-heading"><div><h2>AI 视频提示词</h2><p>专为 9:16 美区 TikTok UGC 与 Gemini Omni Flash 优化</p></div><button className="button secondary" onClick={async () => { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>{copied ? <Check size={16} /> : null}{copied ? '已复制' : '复制提示词'}</button></div><pre>{prompt}</pre>{!task ? <div className="reference-upload-grid"><label className={productImage ? 'mini-upload selected' : 'mini-upload'}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setProductImage(event.target.files?.[0] || null)} /><Upload size={19} /><span><strong>商品参考图</strong><small>{productImage?.name || '建议上传，保持商品外观准确'}</small></span></label><label className={modelImage ? 'mini-upload selected' : 'mini-upload'}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setModelImage(event.target.files?.[0] || null)} /><Upload size={19} /><span><strong>成人模特参考图</strong><small>{modelImage?.name || '可选，用于固定 AI 出镜人物'}</small></span></label></div> : null}<div className="video-action"><div>{task ? <><strong>视频任务：{task.status || 'queued'}</strong><span>系统每 10 秒自动刷新状态</span></> : <><strong>使用 Gemini Omni Flash 生成视频</strong><span>竖屏、原生英语口播与声音；参考图可保持商品和模特一致</span></>}</div>{String(task?.status).toLowerCase() === 'completed' ? <a className="button primary" href={`/api/videos/gemini/${task.id}/content`}><Play size={17} />下载视频</a> : <LoadingButton className="button primary" loading={creating} disabled={!status?.google?.configured || Boolean(task?.id)} onClick={createVideo}><Film size={17} />{task?.id ? '正在生成' : '生成 10 秒视频'}</LoadingButton>}</div></section>
+    <section className="section-block prompt-section">
+      <div className="section-heading"><div><h2>AI 视频提示词</h2><p>已为 9:16 美区 TikTok UGC 和多模型生成优化</p></div><button className="button secondary" onClick={async () => { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>{copied ? <Check size={16} /> : null}{copied ? '已复制' : '复制提示词'}</button></div>
+      <pre>{prompt}</pre>
+      {!task ? <>
+        <div className="model-picker-heading"><div><strong>选择视频模型</strong><span>国内外模型共用同一套脚本，按商品和画面目标选择</span></div><span>{videoModels.filter((item) => item.configured).length}/{videoModels.length} 已配置</span></div>
+        <div className="model-picker">{videoModels.map((item) => <button type="button" key={item.id} className={selectedModelId === item.id ? 'selected' : ''} onClick={() => setSelectedModelId(item.id)}><span className="model-card-top"><strong>{item.name}</strong><em>{item.region}</em></span><small>{item.strengths}</small><span className={item.configured ? 'model-ready' : 'model-pending'}>{item.configured ? '可使用' : '待配置'}</span></button>)}</div>
+        {selectedModel ? <div className="model-guidance"><Film size={17} /><span><strong>{selectedModel.name}</strong>{selectedModel.requiresBothImages ? '必须同时上传商品图和已获授权的成人模特图，可直接生成带原生口播的 UGC 视频。' : selectedModel.id === 'runway-gen45' ? '至少上传一张参考图，适合追求写实质感和镜头运动；口播声音建议后续添加。' : selectedModel.id === 'seedance-2' ? '至少上传一张参考图，支持商品和模特双参考并生成原生声音。' : '支持纯提示词或参考图生成，适合原生英语口播。'}</span></div> : null}
+        <div className="reference-upload-grid"><label className={productImage ? 'mini-upload selected' : 'mini-upload'}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setProductImage(event.target.files?.[0] || null)} /><Upload size={19} /><span><strong>商品参考图</strong><small>{productImage?.name || 'JPG、PNG、WebP，不超过 5 MB'}</small></span></label><label className={modelImage ? 'mini-upload selected' : 'mini-upload'}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setModelImage(event.target.files?.[0] || null)} /><Upload size={19} /><span><strong>成人模特参考图</strong><small>{modelImage?.name || '仅使用已获得本人授权的图片'}</small></span></label></div>
+      </> : null}
+      <div className="video-action"><div>{task ? <><strong>视频任务：{videoModels.find((item) => item.id === task.model)?.name || task.model || task.provider} · {task.status || 'queued'}</strong><span>系统每 10 秒自动刷新状态</span></> : <><strong>使用 {selectedModel?.name || '所选模型'} 生成视频</strong><span>{selectedModel?.configured ? '模型已配置，可以提交真实生成任务' : '模型密钥尚未配置，暂时不能提交任务'}</span></>}</div>{String(task?.status).toLowerCase() === 'completed' ? <a className="button primary" href={`/api/videos/${task.provider}/${task.id}/content`}><Play size={17} />下载视频</a> : <LoadingButton className="button primary" loading={creating} disabled={!selectedModel?.configured || Boolean(task?.id) || (selectedModel?.requiresImage && !productImage && !modelImage) || (selectedModel?.requiresBothImages && (!productImage || !modelImage))} onClick={createVideo}><Film size={17} />{task?.id ? '正在生成' : '生成 10 秒视频'}</LoadingButton>}</div>
+    </section>
     {analysis.risks?.length ? <section className="risk-box"><CircleAlert size={20} /><div><strong>发布前检查</strong><ul>{analysis.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul></div></section> : null}
   </div>
 }
@@ -250,6 +266,7 @@ function SettingsPage({ status, refresh }) {
   const check = async () => { setChecking(true); setMessage(''); try { const result = await postJson('/api/google/check', {}); setMessage(`连接成功：${result.model}`); refresh() } catch (err) { setMessage(err.message) } finally { setChecking(false) } }
   const services = [
     ['Google Gemini', status?.google?.configured, '完整视频理解、原创脚本与 Omni Flash 竖屏视频'],
+    ['Runway 多模型', status?.runway?.configured, 'Seedance 2、Runway Gen-4.5 与 Product UGC'],
     ['TikTok Shop', status?.tiktok?.configured, '官方 Bestsellers 榜单'],
     ['加密存储', status?.storage?.encrypted, '项目、令牌和操作记录'],
   ]

@@ -7,7 +7,7 @@ import { config, serviceStatus } from './server/config.mjs'
 import { analyzeVideo, checkGeminiService, generateScript } from './server/analysis.mjs'
 import { getBestsellingVideos } from './server/tiktok.mjs'
 import { completeAuthorization, createAuthorization, disconnectTikTok, getTikTokAuthorizationStatus, refreshAuthorization } from './server/tiktok-auth.mjs'
-import { createVideoTask, downloadGeminiVideo, getVideoTask } from './server/videos.mjs'
+import { createVideoTask, downloadVideo, getVideoTask } from './server/videos.mjs'
 import { deleteSnapshots, recordAndCompare } from './server/snapshots.mjs'
 import { createProject, deleteProject, getProject, listProjects, updateProject } from './server/projects.mjs'
 import { auditApiRequests, authenticationStatus, login, logout, requireAuthentication, securityHeaders, validateProductionSecurity } from './server/security.mjs'
@@ -31,7 +31,7 @@ const upload = multer({
 
 const imageUpload = multer({
   dest: uploadDir,
-  limits: { fileSize: 12 * 1024 * 1024, files: 2 },
+  limits: { fileSize: 5 * 1024 * 1024, files: 2 },
   fileFilter: (_req, file, callback) => {
     const supported = ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)
     callback(supported ? null : new Error('参考图只支持 JPG、PNG 或 WebP。'), supported)
@@ -108,27 +108,27 @@ app.post('/api/videos', imageUpload.fields([{ name: 'productImage', maxCount: 1 
   if (req.body.projectId) {
     await updateProject(req.body.projectId, {
       status: 'video_processing',
-      videoTask: { provider: task.provider, id: task.id, status: task.status || 'queued', prompt: req.body.prompt },
+      videoTask: { provider: task.provider, id: task.id, model: task.model, status: task.status || 'queued', prompt: req.body.prompt },
     })
   }
   res.status(202).json(task)
 }))
 
 app.get('/api/videos/:provider/:id', asyncRoute(async (req, res) => {
-  const task = await getVideoTask(req.params.provider, req.params.id, req.query.prompt || '')
+  const task = await getVideoTask(req.params.provider, req.params.id, req.query.model || '')
   if (req.query.projectId) {
     const complete = ['completed', 'done', 'success'].includes(String(task.status).toLowerCase())
     const failed = ['failed', 'error', 'cancelled'].includes(String(task.status).toLowerCase())
     await updateProject(req.query.projectId, {
       status: complete ? 'video_completed' : failed ? 'video_failed' : 'video_processing',
-      videoTask: { provider: task.provider, id: task.id || req.params.id, status: task.status, prompt: req.query.prompt || '', task },
+      videoTask: { provider: task.provider, id: task.id || req.params.id, model: task.model, status: task.status, prompt: req.query.prompt || '', task },
     })
   }
   res.json(task)
 }))
 
-app.get('/api/videos/gemini/:id/content', asyncRoute(async (req, res) => {
-  const content = await downloadGeminiVideo(req.params.id)
+app.get('/api/videos/:provider/:id/content', asyncRoute(async (req, res) => {
+  const content = await downloadVideo(req.params.provider, req.params.id)
   res.setHeader('content-type', content.mimeType)
   res.setHeader('content-disposition', `attachment; filename="${req.params.id}.mp4"`)
   res.send(content.data)

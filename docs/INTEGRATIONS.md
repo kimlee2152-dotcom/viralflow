@@ -37,7 +37,25 @@
 - `GEMINI_ANALYSIS_MODEL`（默认 `gemini-3.6-flash`）
 - `GEMINI_VIDEO_MODEL`（默认 `gemini-omni-flash-preview`）
 
-上传视频上限为 200 MB，商品图和模特图每张上限为 12 MB。分析完成后，本地临时文件和上传到 Gemini 的临时文件会自动删除，只保存分析结果。视频生成使用后台任务，页面会自动刷新进度并在完成后提供下载。
+上传视频上限为 200 MB，商品图和模特图每张上限为 5 MB。分析完成后，本地临时文件和上传到 Gemini 的临时文件会自动删除，只保存分析结果。视频生成使用后台任务，页面会自动刷新进度并在完成后提供下载。
+
+## Seedance 与 Runway 视频模型
+
+一枚 Runway 官方密钥可以启用三个视频入口：
+
+- `Seedance 2`：国内模型，支持商品图和模特图多参考、原生声音，适合电商短视频。
+- `Runway Gen-4.5`：海外模型，适合写实画面、产品质感和镜头运动；口播建议后续添加。
+- `Runway Product UGC`：商品图和已获授权的成人模特图直出带口播的 9:16 UGC 成片。
+
+配置项：
+
+- `RUNWAYML_API_SECRET`
+- `RUNWAY_API_BASE_URL`（默认 `https://api.dev.runwayml.com`）
+- `RUNWAY_API_VERSION`（默认 `2024-11-06`）
+- `SEEDANCE_VIDEO_MODEL`（默认 `seedance2`）
+- `RUNWAY_VIDEO_MODEL`（默认 `gen4.5`）
+
+商品图和模特图只作为本次生成任务的输入，提交后服务器立即删除临时文件。请仅上传自己拥有或已获得本人授权的成人模特图片。
 
 ## 生产安全
 

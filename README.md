@@ -6,8 +6,8 @@
 
 - 上传真实商品视频，由 Gemini 同时理解画面、口播、声音和节奏，并结合评论完成内容分析。
 - 从商品资料直接生成原创美式 UGC 脚本和 AI 视频提示词。
-- 自动保存分析和脚本项目，支持使用 Gemini Omni Flash 生成 9:16 原生音频视频并下载成片。
-- 可上传商品参考图和成人模特参考图，保持商品外观与出镜人物一致。
+- 自动保存分析和脚本项目，可选择 Gemini Omni Flash、Seedance 2、Runway Gen-4.5 或 Runway Product UGC 生成 9:16 视频并下载成片。
+- 可上传商品参考图和已获授权的成人模特参考图；Product UGC 可直接生成带模特和原生口播的电商短视频。
 - 接入 TikTok Shop 官方 Bestsellers 数据；未授权或审核未通过时不会显示假数据。
 - 生产环境使用访问密码，令牌和项目文件支持加密保存。
 - 云端使用 PostgreSQL 保存项目、授权状态和增长快照，容器重启不会丢失。
@@ -34,6 +34,7 @@ npm.cmd run dev
 仓库已经包含 `Dockerfile` 和 `render.yaml`。生产环境必须设置：
 
 - `GEMINI_API_KEY`
+- `RUNWAYML_API_SECRET`（使用 Seedance、Gen-4.5 或 Product UGC 时需要）
 - `VIRALFLOW_ADMIN_PASSWORD`
 - `SESSION_SECRET`
 - `DATA_ENCRYPTION_KEY`
