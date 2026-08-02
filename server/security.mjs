@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { config } from './config.mjs'
-import { authenticateAccount, createAccountSession, getSessionUser, registerAccount, revokeAccountSession } from './accounts.mjs'
+import { authenticateAccount, changeAccountPassword, createAccountSession, getSessionUser, registerAccount, revokeAccountSession } from './accounts.mjs'
 
 const auditFile = path.join(config.dataDir, 'audit', 'security.log')
 const sessionCookie = 'viralflow_session'
@@ -111,6 +111,17 @@ export async function logout(req, res) {
   res.setHeader('Set-Cookie', `${sessionCookie}=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict${secure}`)
   res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"')
   res.json({ authenticated:false })
+}
+
+export async function changePassword(req, res) {
+  if (req.user?.role !== 'customer') {
+    return res.status(400).json({ error: '管理员密码需要在服务器配置中修改。', code: 'ADMIN_PASSWORD_MANAGED_EXTERNALLY' })
+  }
+  const user = await changeAccountPassword(req.user.id, req.body?.currentPassword, req.body?.newPassword)
+  const session = await createAccountSession(user)
+  setSessionCookie(res, session)
+  await audit({ action: 'password_changed', actor: user.id })
+  res.json({ authenticated: true, user })
 }
 
 export async function authenticationStatus(req, res) {

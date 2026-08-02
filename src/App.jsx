@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   BarChart3, Check, ChevronRight, CircleAlert, Clapperboard, Cloud,
-  Database, FileText, Film, Home, LoaderCircle, LogOut, Menu, Play,
-  Plus, RefreshCw, Settings, Sparkles, Trash2, Upload, X, Zap,
+  Database, FileText, Film, Home, KeyRound, LoaderCircle, LogOut, Menu, Play,
+  Plus, RefreshCw, Settings, ShieldCheck, Sparkles, Trash2, Upload, UserCheck, UserRound, UserX, X, Zap,
 } from 'lucide-react'
 import { api, formatDate, formatNumber, postJson } from './api.js'
 
@@ -11,7 +11,7 @@ const navigation = [
   { id: 'create', label: '内容制作', icon: Sparkles },
   { id: 'tiktok', label: 'TikTok 数据', icon: BarChart3 },
   { id: 'projects', label: '项目记录', icon: FileText },
-  { id: 'settings', label: '服务状态', icon: Settings },
+  { id: 'settings', label: '账户与服务', icon: Settings },
 ]
 
 function ErrorNotice({ message, onClose }) {
@@ -270,7 +270,65 @@ function TikTokPage({ status, user }) {
   </div>
 }
 
-function SettingsPage({ status, refresh, user }) {
+function AccountSecurity({ user, onAuthRefresh, onLoggedOut }) {
+  const [name, setName] = useState(user?.name || '')
+  const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' })
+  const [deletePassword, setDeletePassword] = useState('')
+  const [busy, setBusy] = useState('')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const saveProfile = async (event) => {
+    event.preventDefault(); setBusy('profile'); setMessage(''); setError('')
+    try { await api('/api/account', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) }); await onAuthRefresh(); setMessage('姓名已更新。') } catch (err) { setError(err.message) } finally { setBusy('') }
+  }
+  const savePassword = async (event) => {
+    event.preventDefault(); setMessage(''); setError('')
+    if (passwords.newPassword !== passwords.confirmPassword) return setError('两次输入的新密码不一致。')
+    setBusy('password')
+    try {
+      await postJson('/api/account/password', { currentPassword: passwords.currentPassword, newPassword: passwords.newPassword })
+      setPasswords({ currentPassword: '', newPassword: '', confirmPassword: '' }); setMessage('密码已更新，其他设备上的登录已退出。'); await onAuthRefresh()
+    } catch (err) { setError(err.message) } finally { setBusy('') }
+  }
+  const removeAccount = async () => {
+    if (!window.confirm('注销后，账户和全部项目将永久删除，无法恢复。确定继续吗？')) return
+    setBusy('delete'); setMessage(''); setError('')
+    try { await api('/api/account', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: deletePassword }) }); onLoggedOut() } catch (err) { setError(err.message) } finally { setBusy('') }
+  }
+  return <section className="section-block account-settings">
+    <div className="section-heading"><div><h2>账户安全</h2><p>管理你的个人资料和登录密码</p></div><ShieldCheck size={22} /></div>
+    {message ? <div className="notice notice-success"><Check size={17} />{message}</div> : null}<ErrorNotice message={error} onClose={() => setError('')} />
+    <div className="account-form-grid">
+      <form onSubmit={saveProfile}><h3>个人资料</h3><Field label="登录邮箱"><input value={user?.email || ''} disabled /></Field><Field label="姓名"><input value={name} onChange={(event) => setName(event.target.value)} minLength="2" maxLength="60" required /></Field><LoadingButton className="button secondary" loading={busy === 'profile'}>保存资料</LoadingButton></form>
+      <form onSubmit={savePassword}><h3>修改密码</h3><Field label="当前密码"><input type="password" autoComplete="current-password" value={passwords.currentPassword} onChange={(event) => setPasswords((value) => ({ ...value, currentPassword: event.target.value }))} required /></Field><Field label="新密码"><input type="password" autoComplete="new-password" minLength="10" value={passwords.newPassword} onChange={(event) => setPasswords((value) => ({ ...value, newPassword: event.target.value }))} required /></Field><Field label="确认新密码"><input type="password" autoComplete="new-password" minLength="10" value={passwords.confirmPassword} onChange={(event) => setPasswords((value) => ({ ...value, confirmPassword: event.target.value }))} required /></Field><LoadingButton className="button secondary" loading={busy === 'password'}><KeyRound size={16} />更新密码</LoadingButton></form>
+    </div>
+    <div className="danger-zone"><div><strong>注销账户</strong><span>将永久删除账户和全部项目，此操作无法撤销。</span></div><input type="password" autoComplete="current-password" placeholder="输入密码确认" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} /><LoadingButton className="button danger" loading={busy === 'delete'} disabled={!deletePassword} onClick={removeAccount}><UserX size={16} />永久注销</LoadingButton></div>
+  </section>
+}
+
+function AdminAccounts() {
+  const [accounts, setAccounts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const load = useCallback(async () => { setLoading(true); setError(''); try { setAccounts((await api('/api/admin/accounts')).accounts || []) } catch (err) { setError(err.message) } finally { setLoading(false) } }, [])
+  useEffect(() => { load() }, [load])
+  const toggle = async (account) => {
+    const status = account.status === 'suspended' ? 'active' : 'suspended'
+    if (status === 'suspended' && !window.confirm(`暂停 ${account.email} 后，该客户会立即退出登录。确定继续吗？`)) return
+    try { const result = await api(`/api/admin/accounts/${account.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status }) }); setAccounts((items) => items.map((item) => item.id === account.id ? { ...item, ...result.account } : item)) } catch (err) { setError(err.message) }
+  }
+  return <section className="section-block customer-management">
+    <div className="section-heading"><div><h2>客户管理</h2><p>查看已注册客户，必要时暂停或恢复登录</p></div><button className="text-button" onClick={load} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={16} />刷新</button></div>
+    <ErrorNotice message={error} onClose={() => setError('')} />
+    {loading ? <div className="inline-loading"><LoaderCircle className="spin" size={20} />正在读取客户</div> : accounts.length ? <div className="customer-list">{accounts.map((account) => <div className="customer-row" key={account.id}><div className="customer-avatar"><UserRound size={18} /></div><div><strong>{account.name}</strong><span>{account.email}</span></div><div><strong>{account.projectCount || 0}</strong><span>项目</span></div><div><strong>{formatDate(account.createdAt)}</strong><span>注册时间</span></div><StatusPill configured={account.status !== 'suspended'} readyText="正常" pendingText="已暂停" /><button className={`button ${account.status === 'suspended' ? 'secondary' : 'ghost-danger'}`} onClick={() => toggle(account)}>{account.status === 'suspended' ? <UserCheck size={16} /> : <UserX size={16} />}{account.status === 'suspended' ? '恢复' : '暂停'}</button></div>)}</div> : <EmptyState icon={UserRound} title="还没有注册客户" text="客户完成免费注册后，会显示在这里。" />}
+  </section>
+}
+
+function VideoModelStatus({ models = [] }) {
+  return <section className="section-block model-status-section"><div className="section-heading"><div><h2>视频模型</h2><p>模型密钥由平台统一配置，客户无需单独填写</p></div><Film size={22} /></div><div className="model-status-list">{models.map((model) => <div key={model.id}><div><strong>{model.name}</strong><span>{model.region} · {model.strengths}</span></div><StatusPill configured={model.configured} readyText="可使用" pendingText="待平台配置" /></div>)}</div></section>
+}
+
+function SettingsPage({ status, refresh, user, onAuthRefresh, onLoggedOut }) {
   const [checking, setChecking] = useState(false)
   const [message, setMessage] = useState('')
   const check = async () => { setChecking(true); setMessage(''); try { const result = await postJson('/api/google/check', {}); setMessage(`连接成功：${result.model}`); refresh() } catch (err) { setMessage(err.message) } finally { setChecking(false) } }
@@ -280,7 +338,7 @@ function SettingsPage({ status, refresh, user }) {
     ['TikTok Shop', status?.tiktok?.configured, '官方 Bestsellers 榜单'],
     ['加密存储', status?.storage?.encrypted, '项目、令牌和操作记录'],
   ]
-  return <div className="page-stack"><div className="page-title"><div><h1>服务状态</h1><p>这里显示的是服务器上的真实配置状态，不会向浏览器泄露密钥。</p></div></div><section className="account-summary"><div><span>{user?.name?.slice(0, 1)?.toUpperCase() || 'V'}</span><div><strong>{user?.name}</strong><small>{user?.email} · {user?.role === 'admin' ? '管理员账户' : '客户账户'}</small></div></div><StatusPill configured readyText="账户正常" /></section><section className="section-block service-list">{services.map(([name, ready, description]) => <div key={name}><div><strong>{name}</strong><span>{description}</span></div><StatusPill configured={ready} /></div>)}</section>{message ? <div className="notice notice-info">{message}</div> : null}{user?.role === 'admin' ? <button className="button secondary align-start" onClick={check} disabled={!status?.google?.configured || checking}>{checking ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}测试 Google Gemini 连接</button> : null}</div>
+  return <div className="page-stack"><div className="page-title"><div><h1>账户与服务</h1><p>管理账户安全并查看平台当前可用的真实服务。</p></div></div><section className="account-summary"><div><span>{user?.name?.slice(0, 1)?.toUpperCase() || 'V'}</span><div><strong>{user?.name}</strong><small>{user?.email} · {user?.role === 'admin' ? '管理员账户' : '客户账户'}</small></div></div><StatusPill configured readyText="账户正常" /></section>{user?.role === 'admin' ? <AdminAccounts /> : <AccountSecurity user={user} onAuthRefresh={onAuthRefresh} onLoggedOut={onLoggedOut} />}<VideoModelStatus models={status?.videoModels} /><section className="section-block service-list">{services.map(([name, ready, description]) => <div key={name}><div><strong>{name}</strong><span>{description}</span></div><StatusPill configured={ready} /></div>)}</section>{message ? <div className="notice notice-info">{message}</div> : null}{user?.role === 'admin' ? <button className="button secondary align-start" onClick={check} disabled={!status?.google?.configured || checking}>{checking ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}测试 Google Gemini 连接</button> : null}</div>
 }
 
 export default function App() {
@@ -323,10 +381,10 @@ export default function App() {
     if (page === 'create') return <CreatePage status={status} onCreated={onCreated} />
     if (page === 'tiktok') return <TikTokPage status={status} user={auth.user} />
     if (page === 'projects') return <ProjectsPage projects={projects} openProject={openProject} removeProject={removeProject} />
-    if (page === 'settings') return <SettingsPage status={status} refresh={loadData} user={auth.user} />
+    if (page === 'settings') return <SettingsPage status={status} refresh={loadData} user={auth.user} onAuthRefresh={checkAuth} onLoggedOut={() => setAuth((value) => ({ ...value, authenticated: false, user: null }))} />
     if (page === 'detail' && selected) return <ProjectDetail project={selected} status={status} onBack={() => setPage('projects')} onRefresh={loadData} />
     return <HomePage projects={projects} status={status} setPage={setPage} openProject={openProject} />
-  }, [page, projects, selected, status, loadData, auth.user])
+  }, [page, projects, selected, status, loadData, auth.user, checkAuth])
 
   if (auth.loading) return <div className="boot-screen"><LoaderCircle className="spin" size={28} />正在启动 ViralFlow</div>
   if (auth.required && !auth.authenticated) return <LoginScreen onLogin={checkAuth} registrationEnabled={auth.registrationEnabled} />

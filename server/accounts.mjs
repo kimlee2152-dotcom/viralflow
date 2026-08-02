@@ -5,8 +5,8 @@ import { config } from './config.mjs'
 import { readSecureJson, writeSecureJson } from './secure-storage.mjs'
 
 const scrypt = promisify(crypto.scrypt)
-const accountsFile = path.join(config.dataDir, 'accounts.json')
-const sessionsFile = path.join(config.dataDir, 'sessions.json')
+const accountsFile = () => path.join(config.dataDir, 'accounts.json')
+const sessionsFile = () => path.join(config.dataDir, 'sessions.json')
 const sessionLifetimeMs = 7 * 24 * 60 * 60 * 1000
 const scryptOptions = { N: 65536, r: 8, p: 2, maxmem: 128 * 1024 * 1024 }
 const commonPasswords = new Set(['password', 'password123', '1234567890', 'qwerty12345', 'admin123456', 'letmein123'])
@@ -19,7 +19,15 @@ function serialized(task) {
 }
 
 function publicUser(account) {
-  return { id: account.id, email: account.email, name: account.name, role: account.role || 'customer', createdAt: account.createdAt }
+  return {
+    id: account.id,
+    email: account.email,
+    name: account.name,
+    role: account.role || 'customer',
+    status: account.status || 'active',
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt || account.createdAt,
+  }
 }
 
 function normalizeEmail(value) {
@@ -64,7 +72,7 @@ async function verifyPassword(password, stored) {
 export async function registerAccount(input) {
   const validated = validateRegistration(input || {})
   return serialized(async () => {
-    const accounts = await readSecureJson(accountsFile, [])
+    const accounts = await readSecureJson(accountsFile(), [])
     if (accounts.some((account) => account.email === validated.email)) {
       throw Object.assign(new Error('这个邮箱已经注册，请直接登录。'), { status: 409, code: 'ACCOUNT_EXISTS' })
     }
@@ -73,23 +81,107 @@ export async function registerAccount(input) {
       email: validated.email,
       name: validated.name,
       role: 'customer',
+      status: 'active',
       passwordHash: await passwordHash(validated.password),
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     }
-    await writeSecureJson(accountsFile, [account, ...accounts].slice(0, 10000))
+    await writeSecureJson(accountsFile(), [account, ...accounts].slice(0, 10000))
     return publicUser(account)
   })
 }
 
 export async function authenticateAccount(email, password) {
   const normalizedEmail = normalizeEmail(email)
-  const accounts = await readSecureJson(accountsFile, [])
+  const accounts = await readSecureJson(accountsFile(), [])
   const account = accounts.find((item) => item.email === normalizedEmail)
   if (!account) {
     await scrypt(String(password || ''), Buffer.from('ViralFlowUnknownUser'), 64, scryptOptions)
     return null
   }
+  if (account.status === 'suspended') {
+    await verifyPassword(password, account.passwordHash)
+    return null
+  }
   return await verifyPassword(password, account.passwordHash) ? publicUser(account) : null
+}
+
+export async function updateAccountProfile(userId, input) {
+  const name = String(input?.name || '').trim().replace(/\s+/g, ' ')
+  if (name.length < 2 || name.length > 60) {
+    throw Object.assign(new Error('姓名长度需要在 2 到 60 个字符之间。'), { status: 400, code: 'INVALID_NAME' })
+  }
+  return serialized(async () => {
+    const accounts = await readSecureJson(accountsFile(), [])
+    const index = accounts.findIndex((account) => account.id === userId)
+    if (index < 0) throw Object.assign(new Error('账户不存在。'), { status: 404, code: 'ACCOUNT_NOT_FOUND' })
+    accounts[index] = { ...accounts[index], name, updatedAt: new Date().toISOString() }
+    await writeSecureJson(accountsFile(), accounts)
+    return publicUser(accounts[index])
+  })
+}
+
+export async function changeAccountPassword(userId, currentPassword, nextPassword) {
+  return serialized(async () => {
+    const accounts = await readSecureJson(accountsFile(), [])
+    const index = accounts.findIndex((account) => account.id === userId)
+    if (index < 0) throw Object.assign(new Error('账户不存在。'), { status: 404, code: 'ACCOUNT_NOT_FOUND' })
+    if (!await verifyPassword(currentPassword, accounts[index].passwordHash)) {
+      throw Object.assign(new Error('当前密码不正确。'), { status: 401, code: 'INVALID_CURRENT_PASSWORD' })
+    }
+    const validated = validateRegistration({
+      email: accounts[index].email,
+      name: accounts[index].name,
+      password: nextPassword,
+    })
+    accounts[index] = {
+      ...accounts[index],
+      passwordHash: await passwordHash(validated.password),
+      updatedAt: new Date().toISOString(),
+    }
+    await writeSecureJson(accountsFile(), accounts)
+    const sessions = await readSecureJson(sessionsFile(), [])
+    await writeSecureJson(sessionsFile(), sessions.filter((session) => session.userId !== userId && session.expiresAt > Date.now()))
+    return publicUser(accounts[index])
+  })
+}
+
+export async function deleteAccount(userId, password) {
+  return serialized(async () => {
+    const accounts = await readSecureJson(accountsFile(), [])
+    const account = accounts.find((item) => item.id === userId)
+    if (!account) throw Object.assign(new Error('账户不存在。'), { status: 404, code: 'ACCOUNT_NOT_FOUND' })
+    if (!await verifyPassword(password, account.passwordHash)) {
+      throw Object.assign(new Error('密码不正确，账户未注销。'), { status: 401, code: 'INVALID_CURRENT_PASSWORD' })
+    }
+    await writeSecureJson(accountsFile(), accounts.filter((item) => item.id !== userId))
+    const sessions = await readSecureJson(sessionsFile(), [])
+    await writeSecureJson(sessionsFile(), sessions.filter((session) => session.userId !== userId && session.expiresAt > Date.now()))
+    return true
+  })
+}
+
+export async function listAccounts() {
+  const accounts = await readSecureJson(accountsFile(), [])
+  return accounts.map(publicUser).sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+}
+
+export async function setAccountStatus(userId, status) {
+  if (!['active', 'suspended'].includes(status)) {
+    throw Object.assign(new Error('账户状态无效。'), { status: 400, code: 'INVALID_ACCOUNT_STATUS' })
+  }
+  return serialized(async () => {
+    const accounts = await readSecureJson(accountsFile(), [])
+    const index = accounts.findIndex((account) => account.id === userId)
+    if (index < 0) throw Object.assign(new Error('账户不存在。'), { status: 404, code: 'ACCOUNT_NOT_FOUND' })
+    accounts[index] = { ...accounts[index], status, updatedAt: new Date().toISOString() }
+    await writeSecureJson(accountsFile(), accounts)
+    if (status === 'suspended') {
+      const sessions = await readSecureJson(sessionsFile(), [])
+      await writeSecureJson(sessionsFile(), sessions.filter((session) => session.userId !== userId && session.expiresAt > Date.now()))
+    }
+    return publicUser(accounts[index])
+  })
 }
 
 function sessionHash(token) {
@@ -100,10 +192,10 @@ export async function createAccountSession(user) {
   const token = crypto.randomBytes(32).toString('base64url')
   const now = Date.now()
   await serialized(async () => {
-    const sessions = await readSecureJson(sessionsFile, [])
+    const sessions = await readSecureJson(sessionsFile(), [])
     const active = sessions.filter((session) => session.expiresAt > now)
     active.push({ tokenHash: sessionHash(token), userId: user.id, expiresAt: now + sessionLifetimeMs, createdAt: new Date(now).toISOString() })
-    await writeSecureJson(sessionsFile, active.slice(-50000))
+    await writeSecureJson(sessionsFile(), active.slice(-50000))
   })
   return { token, maxAgeSeconds: sessionLifetimeMs / 1000 }
 }
@@ -111,21 +203,21 @@ export async function createAccountSession(user) {
 export async function getSessionUser(token, adminUser) {
   if (!token) return null
   const now = Date.now()
-  const sessions = await readSecureJson(sessionsFile, [])
+  const sessions = await readSecureJson(sessionsFile(), [])
   const session = sessions.find((item) => item.tokenHash === sessionHash(token) && item.expiresAt > now)
   if (!session) return null
   if (session.userId === adminUser.id) return adminUser
-  const accounts = await readSecureJson(accountsFile, [])
+  const accounts = await readSecureJson(accountsFile(), [])
   const account = accounts.find((item) => item.id === session.userId)
-  return account ? publicUser(account) : null
+  return account && account.status !== 'suspended' ? publicUser(account) : null
 }
 
 export async function revokeAccountSession(token) {
   if (!token) return
   await serialized(async () => {
     const hash = sessionHash(token)
-    const sessions = await readSecureJson(sessionsFile, [])
-    await writeSecureJson(sessionsFile, sessions.filter((item) => item.tokenHash !== hash && item.expiresAt > Date.now()))
+    const sessions = await readSecureJson(sessionsFile(), [])
+    await writeSecureJson(sessionsFile(), sessions.filter((item) => item.tokenHash !== hash && item.expiresAt > Date.now()))
   })
 }
 

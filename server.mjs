@@ -9,8 +9,9 @@ import { getBestsellingVideos } from './server/tiktok.mjs'
 import { completeAuthorization, createAuthorization, disconnectTikTok, getTikTokAuthorizationStatus, refreshAuthorization } from './server/tiktok-auth.mjs'
 import { createVideoTask, downloadVideo, getVideoTask } from './server/videos.mjs'
 import { deleteSnapshots, recordAndCompare } from './server/snapshots.mjs'
-import { createProject, deleteProject, getProject, listProjects, updateProject } from './server/projects.mjs'
-import { auditApiRequests, authenticationStatus, login, logout, register, requireAdmin, requireAuthentication, securityHeaders, validateProductionSecurity } from './server/security.mjs'
+import { createProject, deleteAllProjects, deleteProject, getProject, listProjects, updateProject } from './server/projects.mjs'
+import { changePassword, auditApiRequests, authenticationStatus, login, logout, register, requireAdmin, requireAuthentication, securityHeaders, validateProductionSecurity } from './server/security.mjs'
+import { deleteAccount, listAccounts, setAccountStatus, updateAccountProfile } from './server/accounts.mjs'
 
 const production = process.argv.includes('--production')
 if (production) process.env.NODE_ENV = 'production'
@@ -55,6 +56,27 @@ app.use('/api', requireAuthentication)
 
 app.get('/api/status', (_req, res) => res.json(serviceStatus()))
 app.post('/api/google/check', requireAdmin, asyncRoute(async (_req, res) => res.json(await checkGeminiService())))
+
+app.patch('/api/account', asyncRoute(async (req, res) => {
+  if (req.user.role !== 'customer') return res.status(400).json({ error: '管理员资料需要在服务器配置中修改。', code: 'ADMIN_PROFILE_MANAGED_EXTERNALLY' })
+  res.json({ user: await updateAccountProfile(req.user.id, req.body || {}) })
+}))
+app.post('/api/account/password', asyncRoute(changePassword))
+app.delete('/api/account', asyncRoute(async (req, res) => {
+  if (req.user.role !== 'customer') return res.status(400).json({ error: '不能通过客户页面注销管理员账户。', code: 'ADMIN_ACCOUNT_PROTECTED' })
+  await deleteAccount(req.user.id, req.body?.password)
+  await deleteAllProjects(req.user.id)
+  await logout(req, res)
+}))
+
+app.get('/api/admin/accounts', requireAdmin, asyncRoute(async (_req, res) => {
+  const accounts = await listAccounts()
+  const enriched = await Promise.all(accounts.map(async (account) => ({ ...account, projectCount: (await listProjects(account.id)).length })))
+  res.json({ accounts: enriched })
+}))
+app.patch('/api/admin/accounts/:id', requireAdmin, asyncRoute(async (req, res) => {
+  res.json({ account: await setAccountStatus(req.params.id, req.body?.status) })
+}))
 
 app.get('/api/projects', asyncRoute(async (req, res) => res.json({ projects: await listProjects(req.user.id) })))
 app.get('/api/projects/:id', asyncRoute(async (req, res) => {

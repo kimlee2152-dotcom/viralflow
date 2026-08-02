@@ -2,13 +2,18 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
 import { GoogleGenAI } from '@google/genai'
 import RunwayML from '@runwayml/sdk'
 import { generateTikTokSign } from '../server/tiktok.mjs'
 import { config, serviceStatus } from '../server/config.mjs'
 import { completeAuthorization, getTikTokAuthorizationStatus } from '../server/tiktok-auth.mjs'
 import { readSecureJson, writeSecureJson } from '../server/secure-storage.mjs'
-import { accountInternals } from '../server/accounts.mjs'
+import {
+  accountInternals, authenticateAccount, changeAccountPassword, createAccountSession,
+  deleteAccount, getSessionUser, listAccounts, registerAccount, setAccountStatus, updateAccountProfile,
+} from '../server/accounts.mjs'
 import { createProject, deleteAllProjects, listProjects } from '../server/projects.mjs'
 
 test('TikTok 官方签名示例可以复现', () => {
@@ -115,6 +120,37 @@ test('客户密码使用慢速加盐算法保存并可安全验证', async () =>
   assert.equal(await accountInternals.verifyPassword('wrong-password', stored), false)
 })
 
+test('客户可以维护资料密码，管理员可以暂停和恢复账户', async () => {
+  const previousDataDir = config.dataDir
+  const temporaryDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'viralflow-accounts-'))
+  config.dataDir = temporaryDataDir
+  try {
+    const registered = await registerAccount({ name: '测试客户', email: 'customer@example.com', password: 'Blue lantern river 2026!' })
+    assert.equal(registered.status, 'active')
+    assert.equal((await authenticateAccount('customer@example.com', 'Blue lantern river 2026!'))?.id, registered.id)
+
+    const updated = await updateAccountProfile(registered.id, { name: '更新后的客户' })
+    assert.equal(updated.name, '更新后的客户')
+
+    await changeAccountPassword(registered.id, 'Blue lantern river 2026!', 'Copper meadow sky 2026!')
+    assert.equal(await authenticateAccount('customer@example.com', 'Blue lantern river 2026!'), null)
+    assert.equal((await authenticateAccount('customer@example.com', 'Copper meadow sky 2026!'))?.name, '更新后的客户')
+
+    const session = await createAccountSession(registered)
+    await setAccountStatus(registered.id, 'suspended')
+    assert.equal(await getSessionUser(session.token, { id: 'admin' }), null)
+    assert.equal((await listAccounts())[0].status, 'suspended')
+
+    await setAccountStatus(registered.id, 'active')
+    assert.equal((await authenticateAccount('customer@example.com', 'Copper meadow sky 2026!'))?.status, 'active')
+    await deleteAccount(registered.id, 'Copper meadow sky 2026!')
+    assert.equal((await listAccounts()).length, 0)
+  } finally {
+    config.dataDir = previousDataDir
+    fs.rmSync(temporaryDataDir, { recursive: true, force: true })
+  }
+})
+
 test('两个客户的项目数据彼此隔离', async () => {
   const ownerA = `test-a-${crypto.randomUUID()}`
   const ownerB = `test-b-${crypto.randomUUID()}`
@@ -134,6 +170,8 @@ test('注册登录接口和管理员权限保护已经启用', () => {
   const securitySource = fs.readFileSync(new URL('../server/security.mjs', import.meta.url), 'utf8')
   assert.equal(serverSource.includes("'/api/auth/register'"), true)
   assert.equal(serverSource.includes("'/api/google/check', requireAdmin"), true)
+  assert.equal(serverSource.includes("'/api/admin/accounts', requireAdmin"), true)
+  assert.equal(serverSource.includes("'/api/account/password'"), true)
   assert.equal(serverSource.includes('listProjects(req.user.id)'), true)
   assert.equal(securitySource.includes('HttpOnly; SameSite=Strict'), true)
   assert.equal(securitySource.includes('Clear-Site-Data'), true)
