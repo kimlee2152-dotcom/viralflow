@@ -1,6 +1,6 @@
 # ViralFlow
 
-面向 TikTok Shop 美区卖家的内容分析、原创脚本与 AI 视频工作台。
+面向 TikTok Shop 卖家的内容分析、原创脚本与 AI 视频工作台。
 
 ## 当前可用功能
 
