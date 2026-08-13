@@ -30,6 +30,17 @@ export const config = {
     seedanceModel: process.env.SEEDANCE_VIDEO_MODEL || 'seedance2',
     runwayModel: process.env.RUNWAY_VIDEO_MODEL || 'gen4.5',
   },
+  billing: {
+    signupCredits: Math.max(0, Number(process.env.SIGNUP_CREDITS || 10)),
+    costs: {
+      script: Math.max(0, Number(process.env.CREDIT_COST_SCRIPT || 1)),
+      videoAnalysis: Math.max(0, Number(process.env.CREDIT_COST_VIDEO_ANALYSIS || 3)),
+      'gemini-omni': Math.max(0, Number(process.env.CREDIT_COST_GEMINI_VIDEO || 20)),
+      'seedance-2': Math.max(0, Number(process.env.CREDIT_COST_SEEDANCE_VIDEO || 20)),
+      'runway-gen45': Math.max(0, Number(process.env.CREDIT_COST_RUNWAY_VIDEO || 30)),
+      'runway-ugc': Math.max(0, Number(process.env.CREDIT_COST_RUNWAY_UGC || 40)),
+    },
+  },
   tiktok: {
     appKey: process.env.TIKTOK_SHOP_APP_KEY || '',
     appSecret: process.env.TIKTOK_SHOP_APP_SECRET || '',
@@ -91,6 +102,10 @@ export function serviceStatus() {
     storage: {
       provider: present(config.databaseUrl) ? 'PostgreSQL' : '本地文件',
       encrypted: present(config.security.dataEncryptionKey),
+    },
+    billing: {
+      signupCredits: config.billing.signupCredits,
+      costs: config.billing.costs,
     },
   }
 }

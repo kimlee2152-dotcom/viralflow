@@ -2,12 +2,12 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { config } from './config.mjs'
-import { authenticateAccount, changeAccountPassword, createAccountSession, getSessionUser, registerAccount, revokeAccountSession } from './accounts.mjs'
+import { changeAccountPassword, createAccountSession, getSessionUser, revokeAccountSession } from './accounts.mjs'
 
 const auditFile = path.join(config.dataDir, 'audit', 'security.log')
 const sessionCookie = 'viralflow_session'
+const guestCookie = 'viralflow_guest'
 const loginAttempts = new Map()
-const registrationAttempts = new Map()
 const adminUser = { id: 'admin', email: 'admin@viralflow.local', name: '管理员', role: 'admin' }
 
 function safeEqual(left, right) {
@@ -45,17 +45,14 @@ export function securityHeaders(req, res, next) {
 }
 
 export async function requireAuthentication(req, res, next) {
-  if (!config.security.authenticationRequired) {
-    req.user = adminUser
-    return next()
-  }
   try {
     const user = await getSessionUser(parseCookies(req.headers.cookie)[sessionCookie], adminUser)
     if (user) {
       req.user = user
       return next()
     }
-    res.status(401).json({ error:'请先登录。', code:'AUTH_REQUIRED' })
+    req.user = publicGuest(req, res)
+    next()
   } catch (error) { next(error) }
 }
 
@@ -69,20 +66,34 @@ function setSessionCookie(res, session) {
   res.setHeader('Set-Cookie', `${sessionCookie}=${session.token}; Max-Age=${session.maxAgeSeconds}; Path=/; HttpOnly; SameSite=Strict${secure}`)
 }
 
+function guestSignature(id) {
+  return crypto.createHmac('sha256', config.security.sessionSecret || 'viralflow-local-guest-secret').update(id).digest('base64url')
+}
+
+function publicGuest(req, res) {
+  const cookies = parseCookies(req.headers.cookie)
+  const [candidate, signature] = String(cookies[guestCookie] || '').split('.')
+  const valid = /^guest-[0-9a-f-]{36}$/.test(candidate || '') && safeEqual(signature, guestSignature(candidate))
+  const id = valid ? candidate : `guest-${crypto.randomUUID()}`
+  if (!valid) {
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
+    res.append('Set-Cookie', `${guestCookie}=${id}.${guestSignature(id)}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax${secure}`)
+  }
+  return { id, name: '访客', email: '', role: 'guest', status: 'active' }
+}
+
 export async function login(req, res) {
   const key = clientKey(req)
   const current = loginAttempts.get(key) || { count:0, resetAt:Date.now() + 15 * 60 * 1000 }
   if (current.resetAt < Date.now()) Object.assign(current, { count:0, resetAt:Date.now() + 15 * 60 * 1000 })
   if (current.count >= 8) return res.status(429).json({ error:'登录尝试次数过多，请稍后再试。', code:'LOGIN_RATE_LIMIT' })
   const adminLogin = req.body?.admin === true
-  const user = adminLogin
-    ? (config.security.adminPassword && safeEqual(req.body?.password, config.security.adminPassword) ? adminUser : null)
-    : await authenticateAccount(req.body?.email, req.body?.password)
+  const user = adminLogin && config.security.adminPassword && safeEqual(req.body?.password, config.security.adminPassword) ? adminUser : null
   if (!user) {
     current.count += 1
     loginAttempts.set(key, current)
     await audit({ action:'login_failed', actor:key })
-    return res.status(401).json({ error:'邮箱或密码不正确。', code:'INVALID_CREDENTIALS' })
+    return res.status(401).json({ error:'管理员密码不正确。', code:'INVALID_CREDENTIALS' })
   }
   loginAttempts.delete(key)
   const session = await createAccountSession(user)
@@ -91,26 +102,11 @@ export async function login(req, res) {
   res.json({ authenticated:true, user })
 }
 
-export async function register(req, res) {
-  const key = clientKey(req)
-  const current = registrationAttempts.get(key) || { count:0, resetAt:Date.now() + 60 * 60 * 1000 }
-  if (current.resetAt < Date.now()) Object.assign(current, { count:0, resetAt:Date.now() + 60 * 60 * 1000 })
-  if (current.count >= 10) return res.status(429).json({ error:'注册次数过多，请稍后再试。', code:'REGISTER_RATE_LIMIT' })
-  current.count += 1
-  registrationAttempts.set(key, current)
-  const user = await registerAccount(req.body || {})
-  const session = await createAccountSession(user)
-  setSessionCookie(res, session)
-  await audit({ action:'account_registered', actor:user.id })
-  res.status(201).json({ authenticated:true, user })
-}
-
 export async function logout(req, res) {
   await revokeAccountSession(parseCookies(req.headers.cookie)[sessionCookie])
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
   res.setHeader('Set-Cookie', `${sessionCookie}=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict${secure}`)
-  res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"')
-  res.json({ authenticated:false })
+  res.json({ authenticated:true, user:publicGuest(req, res) })
 }
 
 export async function changePassword(req, res) {
@@ -125,9 +121,8 @@ export async function changePassword(req, res) {
 }
 
 export async function authenticationStatus(req, res) {
-  if (!config.security.authenticationRequired) return res.json({ required:false, authenticated:true, registrationEnabled:true, user:adminUser })
   const user = await getSessionUser(parseCookies(req.headers.cookie)[sessionCookie], adminUser)
-  res.json({ required:true, authenticated:Boolean(user), registrationEnabled:true, user:user || null })
+  res.json({ required:false, authenticated:true, registrationEnabled:false, publicAccess:true, user:user || publicGuest(req, res) })
 }
 
 export function auditApiRequests(req, res, next) {

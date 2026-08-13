@@ -15,6 +15,7 @@ import {
   deleteAccount, getSessionUser, listAccounts, registerAccount, setAccountStatus, updateAccountProfile,
 } from '../server/accounts.mjs'
 import { createProject, deleteAllProjects, listProjects } from '../server/projects.mjs'
+import { adjustCredits, deleteCreditAccount, getCreditAccount, refundCredits, reserveCredits } from '../server/credits.mjs'
 
 test('TikTok 官方签名示例可以复现', () => {
   const sign = generateTikTokSign('/authorization/202309/shops', {
@@ -165,14 +166,51 @@ test('两个客户的项目数据彼此隔离', async () => {
   }
 })
 
-test('注册登录接口和管理员权限保护已经启用', () => {
+test('客户额度支持赠送、消费、退款和管理员调整', async () => {
+  const previousDataDir = config.dataDir
+  const previousSignupCredits = config.billing.signupCredits
+  const temporaryDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'viralflow-credits-'))
+  const ownerId = `credit-${crypto.randomUUID()}`
+  config.dataDir = temporaryDataDir
+  config.billing.signupCredits = 10
+  try {
+    const initial = await getCreditAccount(ownerId)
+    assert.equal(initial.balance, 10)
+    assert.equal(initial.transactions[0].reason, '新客户体验额度')
+
+    const charge = await reserveCredits(ownerId, 'script', '测试商品')
+    assert.equal(charge.cost, config.billing.costs.script)
+    assert.equal((await getCreditAccount(ownerId)).balance, 10 - config.billing.costs.script)
+
+    await refundCredits(ownerId, charge.chargeId)
+    await refundCredits(ownerId, charge.chargeId)
+    assert.equal((await getCreditAccount(ownerId)).balance, 10)
+
+    const adjusted = await adjustCredits(ownerId, { amount: 25, reason: '测试充值' })
+    assert.equal(adjusted.balance, 35)
+    await assert.rejects(() => adjustCredits(ownerId, { amount: -100, reason: '超额扣减' }), /余额不能小于 0/)
+    await deleteCreditAccount(ownerId)
+  } finally {
+    config.dataDir = previousDataDir
+    config.billing.signupCredits = previousSignupCredits
+    fs.rmSync(temporaryDataDir, { recursive: true, force: true })
+  }
+})
+
+test('公开访客模式和管理员权限保护已经启用', () => {
   const serverSource = fs.readFileSync(new URL('../server.mjs', import.meta.url), 'utf8')
   const securitySource = fs.readFileSync(new URL('../server/security.mjs', import.meta.url), 'utf8')
-  assert.equal(serverSource.includes("'/api/auth/register'"), true)
+  assert.equal(serverSource.includes("code: 'REGISTRATION_DISABLED'"), true)
   assert.equal(serverSource.includes("'/api/google/check', requireAdmin"), true)
   assert.equal(serverSource.includes("'/api/admin/accounts', requireAdmin"), true)
   assert.equal(serverSource.includes("'/api/account/password'"), true)
+  assert.equal(serverSource.includes("'/api/credits'"), true)
+  assert.equal(serverSource.includes("'/api/admin/accounts/:id/credits'"), true)
+  assert.equal(serverSource.includes("reserveCredits(req.user.id, 'script'"), true)
   assert.equal(serverSource.includes('listProjects(req.user.id)'), true)
+  assert.equal(securitySource.includes("role: 'guest'"), true)
+  assert.equal(securitySource.includes('registrationEnabled:false'), true)
+  assert.equal(securitySource.includes('req.user = publicGuest(req, res)'), true)
   assert.equal(securitySource.includes('HttpOnly; SameSite=Strict'), true)
-  assert.equal(securitySource.includes('Clear-Site-Data'), true)
+  assert.equal(securitySource.includes("guestCookie = 'viralflow_guest'"), true)
 })

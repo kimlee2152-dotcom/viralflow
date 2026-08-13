@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  BarChart3, Check, ChevronRight, CircleAlert, Clapperboard, Cloud,
+  BarChart3, Check, ChevronRight, CircleAlert, Clapperboard, Cloud, Coins,
   Database, FileText, Film, Home, KeyRound, LoaderCircle, LogOut, Menu, Play,
   Plus, RefreshCw, Settings, ShieldCheck, Sparkles, Trash2, Upload, UserCheck, UserRound, UserX, X, Zap,
 } from 'lucide-react'
@@ -23,8 +23,8 @@ function LoadingButton({ loading, children, ...props }) {
   return <button {...props} disabled={loading || props.disabled}>{loading ? <LoaderCircle className="spin" size={17} /> : null}{children}</button>
 }
 
-function LoginScreen({ onLogin, registrationEnabled }) {
-  const [mode, setMode] = useState('login')
+function LoginScreen({ onLogin, adminOnly = false }) {
+  const [mode, setMode] = useState(adminOnly ? 'admin' : 'login')
   const [form, setForm] = useState({ name: '', email: '', password: '', confirmPassword: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -43,8 +43,8 @@ function LoginScreen({ onLogin, registrationEnabled }) {
   }
   return <main className="login-page">
     <section className="login-card">
-      <div className="login-brand"><div className="brand-mark"><Zap size={24} fill="currentColor" /></div><div><h1>ViralFlow</h1><p>美区 TikTok 内容制作工作台</p></div></div>
-      <div className="auth-tabs"><button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => changeMode('login')}>客户登录</button>{registrationEnabled ? <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => changeMode('register')}>免费注册</button> : null}</div>
+      <div className="login-brand"><div className="brand-mark"><Zap size={24} fill="currentColor" /></div><div><h1>ViralFlow</h1><p>{adminOnly ? '平台管理员入口' : '美区 TikTok 内容制作工作台'}</p></div></div>
+      {!adminOnly ? <div className="auth-tabs"><button type="button" className="active">直接使用</button></div> : null}
       <form onSubmit={submit}>
         {mode === 'register' ? <label>姓名<input autoFocus autoComplete="name" value={form.name} onChange={set('name')} placeholder="请输入你的姓名或称呼" required /></label> : null}
         {mode !== 'admin' ? <label>邮箱<input autoFocus={mode === 'login'} type="email" autoComplete="email" value={form.email} onChange={set('email')} placeholder="name@example.com" required /></label> : null}
@@ -54,18 +54,18 @@ function LoginScreen({ onLogin, registrationEnabled }) {
         <ErrorNotice message={error} />
         <LoadingButton className="button primary full" loading={loading}>{mode === 'register' ? '创建账户并进入' : mode === 'admin' ? '管理员登录' : '登录'}</LoadingButton>
       </form>
-      <button type="button" className="admin-login-link" onClick={() => changeMode(mode === 'admin' ? 'login' : 'admin')}>{mode === 'admin' ? '返回客户登录' : '我是管理员'}</button>
+      {adminOnly ? <button type="button" className="admin-login-link" onClick={() => { window.history.replaceState({}, '', '/'); window.location.reload() }}>返回公开工作台</button> : null}
     </section>
   </main>
 }
 
-function Sidebar({ page, setPage, open, setOpen, onLogout, user }) {
+function Sidebar({ page, setPage, open, setOpen, onLogout, onAdminLogin, user }) {
   return <>
     {open ? <button className="sidebar-scrim" aria-label="关闭菜单" onClick={() => setOpen(false)} /> : null}
     <aside className={`sidebar ${open ? 'open' : ''}`}>
       <div className="brand"><div className="brand-mark"><Zap size={20} fill="currentColor" /></div><div><strong>ViralFlow</strong><span>内容增长工作台</span></div></div>
       <nav>{navigation.map(({ id, label, icon: Icon }) => <button className={page === id ? 'active' : ''} key={id} onClick={() => { setPage(id); setOpen(false) }}><Icon size={19} />{label}</button>)}</nav>
-      <div className="sidebar-foot"><div className="sidebar-user"><strong>{user?.name || 'ViralFlow 用户'}</strong><span>{user?.role === 'admin' ? '管理员' : user?.email}</span></div><button onClick={onLogout}><LogOut size={17} />退出登录</button></div>
+      <div className="sidebar-foot"><div className="sidebar-user"><strong>{user?.role === 'guest' ? '直接访问模式' : user?.name || 'ViralFlow 用户'}</strong><span>{user?.role === 'admin' ? '管理员' : user?.role === 'guest' ? '无需注册或登录' : user?.email}</span></div>{user?.role === 'admin' ? <button onClick={onLogout}><LogOut size={17} />退出管理员</button> : <button onClick={onAdminLogin}><ShieldCheck size={17} />管理员登录</button>}</div>
     </aside>
   </>
 }
@@ -124,13 +124,16 @@ function EmptyState({ icon: Icon, title, text, action }) {
   return <div className="empty-state"><div><Icon size={25} /></div><h3>{title}</h3><p>{text}</p>{action}</div>
 }
 
-function CreatePage({ status, onCreated }) {
+function CreatePage({ status, onCreated, credits }) {
   const [mode, setMode] = useState('script')
+  const scriptCost = credits?.pricing?.script ?? status?.billing?.costs?.script ?? 0
+  const analysisCost = credits?.pricing?.videoAnalysis ?? status?.billing?.costs?.videoAnalysis ?? 0
   return <div className="page-stack">
     <div className="page-title"><div><h1>内容制作</h1><p>所有结果都来自真实上传内容或你填写的商品资料，不使用样例数据。</p></div></div>
     {!status?.google?.configured ? <ErrorNotice message="Google Gemini 尚未配置，视频分析、脚本和 Omni Flash 生成功能暂不可用。" /> : null}
     <div className="mode-tabs"><button className={mode === 'script' ? 'active' : ''} onClick={() => setMode('script')}><Sparkles size={18} />商品资料生成脚本</button><button className={mode === 'video' ? 'active' : ''} onClick={() => setMode('video')}><Upload size={18} />上传视频分析</button></div>
-    {mode === 'script' ? <ScriptForm disabled={!status?.google?.configured} onCreated={onCreated} /> : <VideoForm disabled={!status?.google?.configured} onCreated={onCreated} />}
+    {credits && !credits.unlimited ? <div className="credit-inline"><Coins size={17} /><span>可用额度</span><strong>{credits.balance} 点</strong></div> : null}
+    {mode === 'script' ? <ScriptForm disabled={!status?.google?.configured || (!credits?.unlimited && credits?.balance < scriptCost)} cost={scriptCost} onCreated={onCreated} /> : <VideoForm disabled={!status?.google?.configured || (!credits?.unlimited && credits?.balance < analysisCost)} cost={analysisCost} onCreated={onCreated} />}
   </div>
 }
 
@@ -138,7 +141,7 @@ function Field({ label, hint, children }) {
   return <label className="field"><span>{label}</span>{children}{hint ? <small>{hint}</small> : null}</label>
 }
 
-function ScriptForm({ disabled, onCreated }) {
+function ScriptForm({ disabled, cost, onCreated }) {
   const [form, setForm] = useState({ product: '', audience: '', sellingPoints: '', comments: '', duration: '20', style: '美式 UGC 真人口播' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -153,11 +156,11 @@ function ScriptForm({ disabled, onCreated }) {
     <div className="field-grid"><Field label="目标消费者"><input value={form.audience} onChange={set('audience')} placeholder="例如：25-40 岁忙碌上班族" /></Field><Field label="视频风格"><select value={form.style} onChange={set('style')}><option>美式 UGC 真人口播</option><option>产品特写演示</option><option>问题解决型</option><option>开箱测评</option></select></Field></div>
     <Field label="核心卖点"><textarea rows="3" value={form.sellingPoints} onChange={set('sellingPoints')} placeholder="每行一个卖点，或直接粘贴商品详情" /></Field>
     <Field label="评论、常见问题或顾虑"><textarea rows="3" value={form.comments} onChange={set('comments')} placeholder="可粘贴真实评论；系统会提炼购买意向、问题和反对理由" /></Field>
-    <div className="form-actions"><ErrorNotice message={error} onClose={() => setError('')} /><Field label="目标时长"><select value={form.duration} onChange={set('duration')}><option value="15">15 秒</option><option value="20">20 秒</option><option value="30">30 秒</option><option value="45">45 秒</option></select></Field><LoadingButton className="button primary" disabled={disabled} loading={loading}><Sparkles size={17} />生成脚本</LoadingButton></div>
+    <div className="form-actions"><ErrorNotice message={error} onClose={() => setError('')} /><Field label="目标时长"><select value={form.duration} onChange={set('duration')}><option value="15">15 秒</option><option value="20">20 秒</option><option value="30">30 秒</option><option value="45">45 秒</option></select></Field><LoadingButton className="button primary" disabled={disabled} loading={loading}><Sparkles size={17} />生成脚本 · {cost} 点</LoadingButton></div>
   </form>
 }
 
-function VideoForm({ disabled, onCreated }) {
+function VideoForm({ disabled, cost, onCreated }) {
   const [file, setFile] = useState(null)
   const [product, setProduct] = useState('')
   const [comments, setComments] = useState('')
@@ -175,11 +178,11 @@ function VideoForm({ disabled, onCreated }) {
     <label className={`upload-zone ${file ? 'selected' : ''}`}><input type="file" accept="video/*" onChange={(event) => setFile(event.target.files?.[0] || null)} /><div><Upload size={26} /><strong>{file ? file.name : '点击选择视频'}</strong><span>{file ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : '支持 MP4、MOV、WebM 等常见格式'}</span></div></label>
     <Field label="商品资料"><textarea rows="3" value={product} onChange={(event) => setProduct(event.target.value)} placeholder="商品名称、价格、核心卖点、目标人群等" /></Field>
     <Field label="评论样本"><textarea rows="4" value={comments} onChange={(event) => setComments(event.target.value)} placeholder="粘贴视频下方的真实评论，一行一条" /></Field>
-    <div className="form-actions"><ErrorNotice message={error} onClose={() => setError('')} /><LoadingButton className="button primary" disabled={disabled || !file} loading={loading}>{loading ? '正在分析，可能需要几分钟' : '开始真实分析'}</LoadingButton></div>
+    <div className="form-actions"><ErrorNotice message={error} onClose={() => setError('')} /><LoadingButton className="button primary" disabled={disabled || !file} loading={loading}>{loading ? '正在分析，可能需要几分钟' : `开始真实分析 · ${cost} 点`}</LoadingButton></div>
   </form>
 }
 
-function ProjectDetail({ project, status, onBack, onRefresh }) {
+function ProjectDetail({ project, status, credits, onBack, onRefresh }) {
   const result = project?.result
   const analysis = result?.analysis
   const script = analysis?.optimized_script
@@ -193,6 +196,8 @@ function ProjectDetail({ project, status, onBack, onRefresh }) {
   const defaultModel = project.videoTask?.model || videoModels.find((item) => item.configured)?.id || videoModels[0]?.id || 'gemini-omni'
   const [selectedModelId, setSelectedModelId] = useState(defaultModel)
   const selectedModel = videoModels.find((item) => item.id === selectedModelId) || videoModels[0]
+  const selectedCost = credits?.pricing?.[selectedModelId] ?? status?.billing?.costs?.[selectedModelId] ?? 0
+  const insufficientCredits = !credits?.unlimited && Number(credits?.balance ?? 0) < selectedCost
   const prompt = analysis?.video_prompt || ''
   const createVideo = async () => {
     setCreating(true); setError('')
@@ -234,11 +239,11 @@ function ProjectDetail({ project, status, onBack, onRefresh }) {
       <pre>{prompt}</pre>
       {!task ? <>
         <div className="model-picker-heading"><div><strong>选择视频模型</strong><span>国内外模型共用同一套脚本，按商品和画面目标选择</span></div><span>{videoModels.filter((item) => item.configured).length}/{videoModels.length} 已配置</span></div>
-        <div className="model-picker">{videoModels.map((item) => <button type="button" key={item.id} className={selectedModelId === item.id ? 'selected' : ''} onClick={() => setSelectedModelId(item.id)}><span className="model-card-top"><strong>{item.name}</strong><em>{item.region}</em></span><small>{item.strengths}</small><span className={item.configured ? 'model-ready' : 'model-pending'}>{item.configured ? '可使用' : '待配置'}</span></button>)}</div>
+        <div className="model-picker">{videoModels.map((item) => <button type="button" key={item.id} className={selectedModelId === item.id ? 'selected' : ''} onClick={() => setSelectedModelId(item.id)}><span className="model-card-top"><strong>{item.name}</strong><em>{item.region}</em></span><small>{item.strengths}</small><span className={item.configured ? 'model-ready' : 'model-pending'}>{item.configured ? `可使用 · ${credits?.pricing?.[item.id] ?? status?.billing?.costs?.[item.id] ?? 0} 点` : '待配置'}</span></button>)}</div>
         {selectedModel ? <div className="model-guidance"><Film size={17} /><span><strong>{selectedModel.name}</strong>{selectedModel.requiresBothImages ? '必须同时上传商品图和已获授权的成人模特图，可直接生成带原生口播的 UGC 视频。' : selectedModel.id === 'runway-gen45' ? '至少上传一张参考图，适合追求写实质感和镜头运动；口播声音建议后续添加。' : selectedModel.id === 'seedance-2' ? '至少上传一张参考图，支持商品和模特双参考并生成原生声音。' : '支持纯提示词或参考图生成，适合原生英语口播。'}</span></div> : null}
         <div className="reference-upload-grid"><label className={productImage ? 'mini-upload selected' : 'mini-upload'}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setProductImage(event.target.files?.[0] || null)} /><Upload size={19} /><span><strong>商品参考图</strong><small>{productImage?.name || 'JPG、PNG、WebP，不超过 5 MB'}</small></span></label><label className={modelImage ? 'mini-upload selected' : 'mini-upload'}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setModelImage(event.target.files?.[0] || null)} /><Upload size={19} /><span><strong>成人模特参考图</strong><small>{modelImage?.name || '仅使用已获得本人授权的图片'}</small></span></label></div>
       </> : null}
-      <div className="video-action"><div>{task ? <><strong>视频任务：{videoModels.find((item) => item.id === task.model)?.name || task.model || task.provider} · {task.status || 'queued'}</strong><span>系统每 10 秒自动刷新状态</span></> : <><strong>使用 {selectedModel?.name || '所选模型'} 生成视频</strong><span>{selectedModel?.configured ? '模型已配置，可以提交真实生成任务' : '模型密钥尚未配置，暂时不能提交任务'}</span></>}</div>{String(task?.status).toLowerCase() === 'completed' ? <a className="button primary" href={`/api/videos/${task.provider}/${task.id}/content`}><Play size={17} />下载视频</a> : <LoadingButton className="button primary" loading={creating} disabled={!selectedModel?.configured || Boolean(task?.id) || (selectedModel?.requiresImage && !productImage && !modelImage) || (selectedModel?.requiresBothImages && (!productImage || !modelImage))} onClick={createVideo}><Film size={17} />{task?.id ? '正在生成' : '生成 10 秒视频'}</LoadingButton>}</div>
+      <div className="video-action"><div>{task ? <><strong>视频任务：{videoModels.find((item) => item.id === task.model)?.name || task.model || task.provider} · {task.status || 'queued'}</strong><span>系统每 10 秒自动刷新状态</span></> : <><strong>使用 {selectedModel?.name || '所选模型'} 生成视频</strong><span>{insufficientCredits ? `额度不足，本次需要 ${selectedCost} 点` : selectedModel?.configured ? `模型已配置，本次消耗 ${selectedCost} 点` : '模型密钥尚未配置，暂时不能提交任务'}</span></>}</div>{String(task?.status).toLowerCase() === 'completed' ? <a className="button primary" href={`/api/videos/${task.provider}/${task.id}/content`}><Play size={17} />下载视频</a> : <LoadingButton className="button primary" loading={creating} disabled={!selectedModel?.configured || insufficientCredits || Boolean(task?.id) || (selectedModel?.requiresImage && !productImage && !modelImage) || (selectedModel?.requiresBothImages && (!productImage || !modelImage))} onClick={createVideo}><Film size={17} />{task?.id ? '正在生成' : `生成 10 秒视频 · ${selectedCost} 点`}</LoadingButton>}</div>
     </section>
     {analysis.risks?.length ? <section className="risk-box"><CircleAlert size={20} /><div><strong>发布前检查</strong><ul>{analysis.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul></div></section> : null}
   </div>
@@ -306,10 +311,27 @@ function AccountSecurity({ user, onAuthRefresh, onLoggedOut }) {
   </section>
 }
 
+function CreditWallet({ credits }) {
+  if (!credits || credits.unlimited) return null
+  const prices = [
+    ['AI 原创脚本', credits.pricing?.script], ['视频内容分析', credits.pricing?.videoAnalysis],
+    ['Gemini Omni 视频', credits.pricing?.['gemini-omni']], ['Seedance 2 视频', credits.pricing?.['seedance-2']],
+    ['Runway Gen-4.5', credits.pricing?.['runway-gen45']], ['Runway Product UGC', credits.pricing?.['runway-ugc']],
+  ]
+  return <section className="section-block credit-wallet">
+    <div className="wallet-balance"><div><Coins size={24} /><span>可用额度</span></div><strong>{credits.balance}<small>点</small></strong><p>额度只在真实任务成功提交时扣除；提交失败会自动退回。</p></div>
+    <div className="credit-pricing">{prices.map(([label, cost]) => <div key={label}><span>{label}</span><strong>{cost ?? 0} 点</strong></div>)}</div>
+    <div className="transaction-history"><div className="section-heading"><div><h3>额度记录</h3><p>充值、消费和自动退款都会保存在这里</p></div></div>{credits.transactions?.length ? <div className="transaction-list">{credits.transactions.map((item) => <div key={item.id}><span className={item.amount >= 0 ? 'credit-positive' : 'credit-negative'}>{item.amount > 0 ? '+' : ''}{item.amount}</span><div><strong>{item.reason}</strong><small>{formatDate(item.createdAt)}</small></div><b>{item.balanceAfter} 点</b></div>)}</div> : <p className="muted-copy">暂时没有额度记录。</p>}</div>
+  </section>
+}
+
 function AdminAccounts() {
   const [accounts, setAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [editing, setEditing] = useState('')
+  const [adjustment, setAdjustment] = useState({ amount: '100', reason: '客户充值' })
+  const [saving, setSaving] = useState(false)
   const load = useCallback(async () => { setLoading(true); setError(''); try { setAccounts((await api('/api/admin/accounts')).accounts || []) } catch (err) { setError(err.message) } finally { setLoading(false) } }, [])
   useEffect(() => { load() }, [load])
   const toggle = async (account) => {
@@ -317,10 +339,18 @@ function AdminAccounts() {
     if (status === 'suspended' && !window.confirm(`暂停 ${account.email} 后，该客户会立即退出登录。确定继续吗？`)) return
     try { const result = await api(`/api/admin/accounts/${account.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status }) }); setAccounts((items) => items.map((item) => item.id === account.id ? { ...item, ...result.account } : item)) } catch (err) { setError(err.message) }
   }
+  const adjust = async (account) => {
+    setSaving(true); setError('')
+    try {
+      const result = await postJson(`/api/admin/accounts/${account.id}/credits`, { amount: Number(adjustment.amount), reason: adjustment.reason })
+      setAccounts((items) => items.map((item) => item.id === account.id ? { ...item, credits: result.credits.balance } : item))
+      setEditing('')
+    } catch (err) { setError(err.message) } finally { setSaving(false) }
+  }
   return <section className="section-block customer-management">
-    <div className="section-heading"><div><h2>客户管理</h2><p>查看已注册客户，必要时暂停或恢复登录</p></div><button className="text-button" onClick={load} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={16} />刷新</button></div>
+    <div className="section-heading"><div><h2>客户管理</h2><p>查看客户、调整额度，必要时暂停或恢复登录</p></div><button className="text-button" onClick={load} disabled={loading}><RefreshCw className={loading ? 'spin' : ''} size={16} />刷新</button></div>
     <ErrorNotice message={error} onClose={() => setError('')} />
-    {loading ? <div className="inline-loading"><LoaderCircle className="spin" size={20} />正在读取客户</div> : accounts.length ? <div className="customer-list">{accounts.map((account) => <div className="customer-row" key={account.id}><div className="customer-avatar"><UserRound size={18} /></div><div><strong>{account.name}</strong><span>{account.email}</span></div><div><strong>{account.projectCount || 0}</strong><span>项目</span></div><div><strong>{formatDate(account.createdAt)}</strong><span>注册时间</span></div><StatusPill configured={account.status !== 'suspended'} readyText="正常" pendingText="已暂停" /><button className={`button ${account.status === 'suspended' ? 'secondary' : 'ghost-danger'}`} onClick={() => toggle(account)}>{account.status === 'suspended' ? <UserCheck size={16} /> : <UserX size={16} />}{account.status === 'suspended' ? '恢复' : '暂停'}</button></div>)}</div> : <EmptyState icon={UserRound} title="还没有注册客户" text="客户完成免费注册后，会显示在这里。" />}
+    {loading ? <div className="inline-loading"><LoaderCircle className="spin" size={20} />正在读取客户</div> : accounts.length ? <div className="customer-list">{accounts.map((account) => <div className="customer-entry" key={account.id}><div className="customer-row"><div className="customer-avatar"><UserRound size={18} /></div><div><strong>{account.name}</strong><span>{account.email}</span></div><div><strong>{account.credits ?? 0}</strong><span>可用额度</span></div><div><strong>{account.projectCount || 0}</strong><span>项目</span></div><StatusPill configured={account.status !== 'suspended'} readyText="正常" pendingText="已暂停" /><div className="customer-actions"><button className="button secondary" onClick={() => setEditing(editing === account.id ? '' : account.id)}><Coins size={16} />额度</button><button className={`button ${account.status === 'suspended' ? 'secondary' : 'ghost-danger'}`} onClick={() => toggle(account)}>{account.status === 'suspended' ? <UserCheck size={16} /> : <UserX size={16} />}{account.status === 'suspended' ? '恢复' : '暂停'}</button></div></div>{editing === account.id ? <div className="credit-adjustment"><div><strong>调整 {account.name} 的额度</strong><span>输入正数充值，输入负数扣减</span></div><input type="number" min="-100000" max="100000" step="1" value={adjustment.amount} onChange={(event) => setAdjustment((value) => ({ ...value, amount: event.target.value }))} /><input value={adjustment.reason} maxLength="120" placeholder="调整原因" onChange={(event) => setAdjustment((value) => ({ ...value, reason: event.target.value }))} /><LoadingButton className="button primary" loading={saving} disabled={!Number(adjustment.amount) || adjustment.reason.trim().length < 2} onClick={() => adjust(account)}>确认调整</LoadingButton></div> : null}</div>)}</div> : <EmptyState icon={UserRound} title="还没有注册客户" text="客户完成免费注册后，会显示在这里。" />}
   </section>
 }
 
@@ -328,7 +358,7 @@ function VideoModelStatus({ models = [] }) {
   return <section className="section-block model-status-section"><div className="section-heading"><div><h2>视频模型</h2><p>模型密钥由平台统一配置，客户无需单独填写</p></div><Film size={22} /></div><div className="model-status-list">{models.map((model) => <div key={model.id}><div><strong>{model.name}</strong><span>{model.region} · {model.strengths}</span></div><StatusPill configured={model.configured} readyText="可使用" pendingText="待平台配置" /></div>)}</div></section>
 }
 
-function SettingsPage({ status, refresh, user, onAuthRefresh, onLoggedOut }) {
+function SettingsPage({ status, credits, refresh, user, onAuthRefresh, onLoggedOut }) {
   const [checking, setChecking] = useState(false)
   const [message, setMessage] = useState('')
   const check = async () => { setChecking(true); setMessage(''); try { const result = await postJson('/api/google/check', {}); setMessage(`连接成功：${result.model}`); refresh() } catch (err) { setMessage(err.message) } finally { setChecking(false) } }
@@ -338,14 +368,16 @@ function SettingsPage({ status, refresh, user, onAuthRefresh, onLoggedOut }) {
     ['TikTok Shop', status?.tiktok?.configured, '官方 Bestsellers 榜单'],
     ['加密存储', status?.storage?.encrypted, '项目、令牌和操作记录'],
   ]
-  return <div className="page-stack"><div className="page-title"><div><h1>账户与服务</h1><p>管理账户安全并查看平台当前可用的真实服务。</p></div></div><section className="account-summary"><div><span>{user?.name?.slice(0, 1)?.toUpperCase() || 'V'}</span><div><strong>{user?.name}</strong><small>{user?.email} · {user?.role === 'admin' ? '管理员账户' : '客户账户'}</small></div></div><StatusPill configured readyText="账户正常" /></section>{user?.role === 'admin' ? <AdminAccounts /> : <AccountSecurity user={user} onAuthRefresh={onAuthRefresh} onLoggedOut={onLoggedOut} />}<VideoModelStatus models={status?.videoModels} /><section className="section-block service-list">{services.map(([name, ready, description]) => <div key={name}><div><strong>{name}</strong><span>{description}</span></div><StatusPill configured={ready} /></div>)}</section>{message ? <div className="notice notice-info">{message}</div> : null}{user?.role === 'admin' ? <button className="button secondary align-start" onClick={check} disabled={!status?.google?.configured || checking}>{checking ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}测试 Google Gemini 连接</button> : null}</div>
+  return <div className="page-stack"><div className="page-title"><div><h1>账户与服务</h1><p>查看使用额度和平台当前可用的真实服务。</p></div></div><section className="account-summary"><div><span>{user?.role === 'guest' ? '访' : user?.name?.slice(0, 1)?.toUpperCase() || 'V'}</span><div><strong>{user?.role === 'guest' ? '直接访问模式' : user?.name}</strong><small>{user?.role === 'admin' ? '管理员账户' : user?.role === 'guest' ? '无需注册，每个浏览器拥有独立项目空间' : `${user?.email} · 客户账户`}</small></div></div><StatusPill configured readyText={user?.role === 'guest' ? '可直接使用' : '账户正常'} /></section>{user?.role === 'admin' ? <AdminAccounts /> : <><CreditWallet credits={credits} />{user?.role === 'customer' ? <AccountSecurity user={user} onAuthRefresh={onAuthRefresh} onLoggedOut={onLoggedOut} /> : null}</>}<VideoModelStatus models={status?.videoModels} /><section className="section-block service-list">{services.map(([name, ready, description]) => <div key={name}><div><strong>{name}</strong><span>{description}</span></div><StatusPill configured={ready} /></div>)}</section>{message ? <div className="notice notice-info">{message}</div> : null}{user?.role === 'admin' ? <button className="button secondary align-start" onClick={check} disabled={!status?.google?.configured || checking}>{checking ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}测试 Google Gemini 连接</button> : null}</div>
 }
 
 export default function App() {
   const initialPage = new URLSearchParams(window.location.search).get('page') || 'home'
+  const [adminMode, setAdminMode] = useState(new URLSearchParams(window.location.search).get('admin') === '1')
   const [auth, setAuth] = useState({ loading: true, required: false, authenticated: false })
   const [page, setPage] = useState(initialPage)
   const [status, setStatus] = useState(null)
+  const [credits, setCredits] = useState(null)
   const [projects, setProjects] = useState([])
   const [selected, setSelected] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -353,8 +385,8 @@ export default function App() {
 
   const loadData = useCallback(async () => {
     try {
-      const [service, projectData] = await Promise.all([api('/api/status'), api('/api/projects')])
-      setStatus(service); setProjects(projectData.projects || [])
+      const [service, projectData, creditData] = await Promise.all([api('/api/status'), api('/api/projects'), api('/api/credits')])
+      setStatus(service); setProjects(projectData.projects || []); setCredits(creditData)
       setSelected((current) => current ? (projectData.projects || []).find((item) => item.id === current.id) || current : null)
     } catch (err) { if (err.status === 401) setAuth((value) => ({ ...value, authenticated: false })); else setError(err.message) }
   }, [])
@@ -373,20 +405,20 @@ export default function App() {
   }, [page])
 
   const openProject = (project) => { setSelected(project); setPage('detail') }
-  const onCreated = (project) => { setProjects((items) => [project, ...items]); openProject(project) }
+  const onCreated = (project) => { setProjects((items) => [project, ...items]); openProject(project); loadData() }
   const removeProject = async (id) => { try { await api(`/api/projects/${id}`, { method: 'DELETE' }); setProjects((items) => items.filter((item) => item.id !== id)) } catch (err) { setError(err.message) } }
   const logout = async () => { await postJson('/api/auth/logout', {}); setAuth((value) => ({ ...value, authenticated: false })) }
 
   const content = useMemo(() => {
-    if (page === 'create') return <CreatePage status={status} onCreated={onCreated} />
+    if (page === 'create') return <CreatePage status={status} credits={credits} onCreated={onCreated} />
     if (page === 'tiktok') return <TikTokPage status={status} user={auth.user} />
     if (page === 'projects') return <ProjectsPage projects={projects} openProject={openProject} removeProject={removeProject} />
-    if (page === 'settings') return <SettingsPage status={status} refresh={loadData} user={auth.user} onAuthRefresh={checkAuth} onLoggedOut={() => setAuth((value) => ({ ...value, authenticated: false, user: null }))} />
-    if (page === 'detail' && selected) return <ProjectDetail project={selected} status={status} onBack={() => setPage('projects')} onRefresh={loadData} />
+    if (page === 'settings') return <SettingsPage status={status} credits={credits} refresh={loadData} user={auth.user} onAuthRefresh={checkAuth} onLoggedOut={() => setAuth((value) => ({ ...value, authenticated: false, user: null }))} />
+    if (page === 'detail' && selected) return <ProjectDetail project={selected} status={status} credits={credits} onBack={() => setPage('projects')} onRefresh={loadData} />
     return <HomePage projects={projects} status={status} setPage={setPage} openProject={openProject} />
-  }, [page, projects, selected, status, loadData, auth.user, checkAuth])
+  }, [page, projects, selected, status, credits, loadData, auth.user, checkAuth])
 
   if (auth.loading) return <div className="boot-screen"><LoaderCircle className="spin" size={28} />正在启动 ViralFlow</div>
-  if (auth.required && !auth.authenticated) return <LoginScreen onLogin={checkAuth} registrationEnabled={auth.registrationEnabled} />
-  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={sidebarOpen} setOpen={setSidebarOpen} onLogout={logout} user={auth.user} /><div className="main-shell"><header className="topbar"><button className="menu-button" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div><strong>{navigation.find((item) => item.id === page)?.label || '项目详情'}</strong><span>真实内容 · 真实数据 · 原创生成</span></div><StatusPill configured={status?.google?.configured} pendingText="AI 未配置" /></header><main className="content"><ErrorNotice message={error} onClose={() => setError('')} />{content}</main></div></div>
+  if (adminMode && auth.user?.role !== 'admin') return <LoginScreen adminOnly onLogin={async () => { await checkAuth(); setAdminMode(false); window.history.replaceState({}, '', '/') }} />
+  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={sidebarOpen} setOpen={setSidebarOpen} onLogout={async () => { await logout(); setAdminMode(false); await checkAuth() }} onAdminLogin={() => { setAdminMode(true); window.history.replaceState({}, '', '/?admin=1') }} user={auth.user} /><div className="main-shell"><header className="topbar"><button className="menu-button" aria-label="打开菜单" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div><strong>{navigation.find((item) => item.id === page)?.label || '项目详情'}</strong><span>真实内容 · 真实数据 · 原创生成</span></div>{!credits?.unlimited && credits ? <div className="topbar-credits"><Coins size={16} /><span>{credits.balance} 点</span></div> : null}<StatusPill configured={status?.google?.configured} pendingText="AI 未配置" /></header><main className="content"><ErrorNotice message={error} onClose={() => setError('')} />{content}</main></div></div>
 }

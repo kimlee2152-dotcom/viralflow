@@ -10,8 +10,9 @@ import { completeAuthorization, createAuthorization, disconnectTikTok, getTikTok
 import { createVideoTask, downloadVideo, getVideoTask } from './server/videos.mjs'
 import { deleteSnapshots, recordAndCompare } from './server/snapshots.mjs'
 import { createProject, deleteAllProjects, deleteProject, getProject, listProjects, updateProject } from './server/projects.mjs'
-import { changePassword, auditApiRequests, authenticationStatus, login, logout, register, requireAdmin, requireAuthentication, securityHeaders, validateProductionSecurity } from './server/security.mjs'
+import { changePassword, auditApiRequests, authenticationStatus, login, logout, requireAdmin, requireAuthentication, securityHeaders, validateProductionSecurity } from './server/security.mjs'
 import { deleteAccount, listAccounts, setAccountStatus, updateAccountProfile } from './server/accounts.mjs'
+import { adjustCredits, deleteCreditAccount, getCreditAccount, refundCredits, reserveCredits } from './server/credits.mjs'
 
 const production = process.argv.includes('--production')
 if (production) process.env.NODE_ENV = 'production'
@@ -51,31 +52,44 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'ViralFlow',
 app.get('/api/auth/status', authenticationStatus)
 app.post('/api/auth/login', login)
 app.post('/api/auth/logout', logout)
-app.post('/api/auth/register', register)
+app.post('/api/auth/register', (_req, res) => res.status(410).json({ error: '注册功能已关闭，打开网站即可直接使用。', code: 'REGISTRATION_DISABLED' }))
 app.use('/api', requireAuthentication)
 
 app.get('/api/status', (_req, res) => res.json(serviceStatus()))
 app.post('/api/google/check', requireAdmin, asyncRoute(async (_req, res) => res.json(await checkGeminiService())))
 
 app.patch('/api/account', asyncRoute(async (req, res) => {
-  if (req.user.role !== 'customer') return res.status(400).json({ error: '管理员资料需要在服务器配置中修改。', code: 'ADMIN_PROFILE_MANAGED_EXTERNALLY' })
+  if (req.user.role !== 'customer') return res.status(400).json({ error: '访客模式无需维护账户资料。', code: 'ACCOUNT_NOT_AVAILABLE' })
   res.json({ user: await updateAccountProfile(req.user.id, req.body || {}) })
 }))
 app.post('/api/account/password', asyncRoute(changePassword))
 app.delete('/api/account', asyncRoute(async (req, res) => {
-  if (req.user.role !== 'customer') return res.status(400).json({ error: '不能通过客户页面注销管理员账户。', code: 'ADMIN_ACCOUNT_PROTECTED' })
+  if (req.user.role !== 'customer') return res.status(400).json({ error: '访客模式没有需要注销的账户。', code: 'ACCOUNT_NOT_AVAILABLE' })
   await deleteAccount(req.user.id, req.body?.password)
   await deleteAllProjects(req.user.id)
+  await deleteCreditAccount(req.user.id)
   await logout(req, res)
+}))
+
+app.get('/api/credits', asyncRoute(async (req, res) => {
+  if (req.user.role === 'admin') return res.json({ unlimited: true, balance: null, transactions: [], pricing: config.billing.costs })
+  res.json(await getCreditAccount(req.user.id))
 }))
 
 app.get('/api/admin/accounts', requireAdmin, asyncRoute(async (_req, res) => {
   const accounts = await listAccounts()
-  const enriched = await Promise.all(accounts.map(async (account) => ({ ...account, projectCount: (await listProjects(account.id)).length })))
+  const enriched = await Promise.all(accounts.map(async (account) => ({
+    ...account,
+    projectCount: (await listProjects(account.id)).length,
+    credits: (await getCreditAccount(account.id)).balance,
+  })))
   res.json({ accounts: enriched })
 }))
 app.patch('/api/admin/accounts/:id', requireAdmin, asyncRoute(async (req, res) => {
   res.json({ account: await setAccountStatus(req.params.id, req.body?.status) })
+}))
+app.post('/api/admin/accounts/:id/credits', requireAdmin, asyncRoute(async (req, res) => {
+  res.json({ credits: await adjustCredits(req.params.id, req.body || {}, req.user.id) })
 }))
 
 app.get('/api/projects', asyncRoute(async (req, res) => res.json({ projects: await listProjects(req.user.id) })))
@@ -90,7 +104,12 @@ app.delete('/api/projects/:id', asyncRoute(async (req, res) => {
 }))
 
 app.post('/api/scripts', asyncRoute(async (req, res) => {
-  const result = await generateScript(req.body || {})
+  const charge = req.user.role === 'customer' ? await reserveCredits(req.user.id, 'script', req.body?.product) : null
+  let result
+  try { result = await generateScript(req.body || {}) } catch (error) {
+    if (charge) await refundCredits(req.user.id, charge.chargeId)
+    throw error
+  }
   const project = await createProject({
     kind: 'script',
     title: result.analysis?.optimized_script?.title || req.body.product,
@@ -114,7 +133,16 @@ app.post('/api/analyze-video', upload.single('video'), asyncRoute(async (req, re
     error.status = 400
     throw error
   }
-  const result = await analyzeVideo({ filePath: req.file.path, mimeType: req.file.mimetype, comments: req.body.comments, product: req.body.product })
+  let charge
+  let result
+  try {
+    charge = req.user.role === 'customer' ? await reserveCredits(req.user.id, 'videoAnalysis', req.file.originalname) : null
+    result = await analyzeVideo({ filePath: req.file.path, mimeType: req.file.mimetype, comments: req.body.comments, product: req.body.product })
+  } catch (error) {
+    if (charge) await refundCredits(req.user.id, charge.chargeId)
+    await fs.rm(req.file.path, { force: true })
+    throw error
+  }
   const project = await createProject({
     kind: 'analysis',
     title: result.analysis?.optimized_script?.title || req.body.product || req.file.originalname,
@@ -127,11 +155,21 @@ app.post('/api/analyze-video', upload.single('video'), asyncRoute(async (req, re
 
 app.post('/api/videos', imageUpload.fields([{ name: 'productImage', maxCount: 1 }, { name: 'modelImage', maxCount: 1 }]), asyncRoute(async (req, res) => {
   const referenceImages = Object.values(req.files || {}).flat()
-  const task = await createVideoTask({ ...req.body, referenceImages })
+  const model = req.body.model || 'gemini-omni'
+  let charge
+  let task
+  try {
+    charge = req.user.role === 'customer' ? await reserveCredits(req.user.id, model, req.body.projectId || '') : null
+    task = await createVideoTask({ ...req.body, model, referenceImages })
+  } catch (error) {
+    if (charge) await refundCredits(req.user.id, charge.chargeId)
+    await Promise.all(referenceImages.map((file) => fs.rm(file.path, { force: true })))
+    throw error
+  }
   if (req.body.projectId) {
     await updateProject(req.body.projectId, {
       status: 'video_processing',
-      videoTask: { provider: task.provider, id: task.id, model: task.model, status: task.status || 'queued', prompt: req.body.prompt },
+      videoTask: { provider: task.provider, id: task.id, model: task.model, status: task.status || 'queued', prompt: req.body.prompt, chargeId: charge?.chargeId || null },
     }, req.user.id)
   }
   res.status(202).json(task)
@@ -142,9 +180,17 @@ app.get('/api/videos/:provider/:id', asyncRoute(async (req, res) => {
   if (req.query.projectId) {
     const complete = ['completed', 'done', 'success'].includes(String(task.status).toLowerCase())
     const failed = ['failed', 'error', 'cancelled'].includes(String(task.status).toLowerCase())
+    const project = await getProject(req.query.projectId, req.user.id)
+    if (failed && project?.videoTask?.chargeId && !project.videoTask.refundedAt) {
+      await refundCredits(req.user.id, project.videoTask.chargeId, '视频生成失败，额度已自动退回')
+    }
     await updateProject(req.query.projectId, {
       status: complete ? 'video_completed' : failed ? 'video_failed' : 'video_processing',
-      videoTask: { provider: task.provider, id: task.id || req.params.id, model: task.model, status: task.status, prompt: req.query.prompt || '', task },
+      videoTask: {
+        ...(project?.videoTask || {}), provider: task.provider, id: task.id || req.params.id, model: task.model,
+        status: task.status, prompt: req.query.prompt || '', task,
+        refundedAt: failed && project?.videoTask?.chargeId ? (project.videoTask.refundedAt || new Date().toISOString()) : project?.videoTask?.refundedAt,
+      },
     }, req.user.id)
   }
   res.json(task)
